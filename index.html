@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SimilarBird</title>
 
 <link rel="manifest" href="./manifest.json">
@@ -33,7 +33,7 @@ body { margin:0; font-family:sans-serif; background:#f5f5f5; }
 .now { border:2px solid #007aff; }
 
 .map {
-  height:150px;
+  height:160px;
   margin-top:10px;
   border-radius:8px;
 }
@@ -47,6 +47,12 @@ body { margin:0; font-family:sans-serif; background:#f5f5f5; }
   color:white;
   padding:10px;
 }
+
+.train-step {
+  border-left:3px solid #007aff;
+  padding-left:8px;
+  margin:6px 0;
+}
 </style>
 </head>
 
@@ -56,43 +62,30 @@ body { margin:0; font-family:sans-serif; background:#f5f5f5; }
 <div id="nextBar" class="next-bar"></div>
 
 <script>
-// ===== データ読み込み =====
+// ===== データ =====
 function loadData() {
-  const params = new URLSearchParams(location.search);
-  const compressed = params.get("d");
-
-  if (!compressed) {
-    alert("データがありません");
-    return { cards: [] };
-  }
-
-  try {
-    const json = LZString.decompressFromEncodedURIComponent(compressed);
-    return JSON.parse(json);
-  } catch {
-    alert("データ読み込み失敗");
-    return { cards: [] };
-  }
+  const p = new URLSearchParams(location.search);
+  const d = p.get("d");
+  if (!d) return { cards: [] };
+  return JSON.parse(LZString.decompressFromEncodedURIComponent(d));
 }
 
 const data = loadData();
 
-// ===== 現在判定 =====
+// ===== 現在 =====
 function getNowIndex(cards) {
   const now = new Date();
   const m = now.getHours()*60 + now.getMinutes();
-
-  return cards.findIndex(c => {
+  return cards.findIndex(c=>{
     const [sh,sm]=c.start.split(":").map(Number);
     const [eh,em]=c.end.split(":").map(Number);
     return m>=sh*60+sm && m<eh*60+em;
   });
 }
 
+const nowIndex = getNowIndex(data.cards);
 const list = document.getElementById("list");
 const nextBar = document.getElementById("nextBar");
-
-const nowIndex = getNowIndex(data.cards);
 
 // ===== 描画 =====
 data.cards.forEach((c,i)=>{
@@ -105,35 +98,39 @@ data.cards.forEach((c,i)=>{
     <div class="header">
       <div>
         🕒 ${c.start}-${c.end}<br>
-        ${c.type==="move"?"🚗移動":c.title}
-      </div>
-      ▶
+        ${title(c)}
+      </div>▶
     </div>
-    <div class="details">
-      ${render(c,i)}
-    </div>
+    <div class="details">${render(c,i)}</div>
   `;
 
-el.querySelector(".header").onclick = () => {
-  el.classList.toggle("open");
+  el.querySelector(".header").onclick = ()=>{
+    el.classList.toggle("open");
 
-  if (el.classList.contains("open")) {
-    const mapDiv = el.querySelector(".map");
-    if (mapDiv && mapDiv._leaflet_map) {
-      setTimeout(() => {
-        mapDiv._leaflet_map.invalidateSize();
-      }, 100);
+    if (el.classList.contains("open")) {
+      const mapDiv = el.querySelector(".map");
+      if (mapDiv && mapDiv._map) {
+        setTimeout(()=>mapDiv._map.invalidateSize(),100);
+      }
     }
-  }
-};
+  };
 
   list.appendChild(el);
 });
 
 // ===== 次カード =====
 if (nowIndex>=0 && nowIndex<data.cards.length-1){
-  const next = data.cards[nowIndex+1];
-  nextBar.innerText = `次 ▶ ${next.type==="move"?"移動":next.title}`;
+  const n = data.cards[nowIndex+1];
+  nextBar.innerText = `次 ▶ ${title(n)}`;
+}
+
+// ===== タイトル =====
+function title(c){
+  if (c.type==="move"){
+    if (c.mode==="train") return "🚃 電車移動";
+    return "🚗 移動";
+  }
+  return c.title;
 }
 
 // ===== 詳細 =====
@@ -145,8 +142,22 @@ function render(c,i){
   }
 
   if (c.type==="move"){
-    html += `⏱ ${c.duration}<br>
-    <a href="https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}" target="_blank">🚗 ナビ</a><br>`;
+    if (c.mode==="car"){
+      html += `⏱ ${c.duration}<br>
+      <a href="https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}" target="_blank">🚗 ナビ</a><br>`;
+    }
+
+    if (c.mode==="train"){
+      html += `<div>🚃 乗換案内</div>`;
+      c.steps.forEach(s=>{
+        html += `
+        <div class="train-step">
+          ${s.depart} ${s.from}<br>
+          ↓ ${s.line}<br>
+          ${s.arrive} ${s.to}
+        </div>`;
+      });
+    }
   }
 
   if (c.lat){
@@ -161,16 +172,18 @@ setTimeout(()=>{
   data.cards.forEach((c,i)=>{
     if (!c.lat) return;
 
-    const map = L.map(`map-${i}`).setView([c.lat,c.lng],15);
+    const map = L.map(`map-${i}`).setView([c.lat,c.lng],13);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      maxZoom:19
-    }).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
     L.marker([c.lat,c.lng]).addTo(map);
 
-    // ←これ追加
-    document.getElementById(`map-${i}`)._leaflet_map = map;
+    // ルート線
+    if (c.route){
+      L.polyline(c.route, {color:"blue"}).addTo(map);
+    }
+
+    document.getElementById(`map-${i}`)._map = map;
   });
 },100);
 
