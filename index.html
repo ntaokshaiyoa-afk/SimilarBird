@@ -114,9 +114,18 @@ data.cards.forEach((c,i)=>{
     </div>
   `;
 
-  el.querySelector(".header").onclick = ()=>{
-    el.classList.toggle("open");
-  };
+el.querySelector(".header").onclick = () => {
+  el.classList.toggle("open");
+
+  if (el.classList.contains("open")) {
+    const mapDiv = el.querySelector(".map");
+    if (mapDiv && mapDiv._leaflet_map) {
+      setTimeout(() => {
+        mapDiv._leaflet_map.invalidateSize();
+      }, 100);
+    }
+  }
+};
 
   list.appendChild(el);
 });
@@ -159,6 +168,9 @@ setTimeout(()=>{
     }).addTo(map);
 
     L.marker([c.lat,c.lng]).addTo(map);
+
+    // ←これ追加
+    document.getElementById(`map-${i}`)._leaflet_map = map;
   });
 },100);
 
