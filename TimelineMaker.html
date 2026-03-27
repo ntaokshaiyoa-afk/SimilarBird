@@ -1,8 +1,25 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Timeline Maker</title>
+
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+
+<style>
+body { font-family:sans-serif; padding:20px; }
+textarea { width:100%; height:200px; }
+button { margin-top:10px; padding:10px; }
+#out { margin-top:10px; word-break:break-all; }
+</style>
+</head>
+
 <body>
 
-<textarea id="json" rows="10" cols="40">
+<h2>行程JSON</h2>
+
+<textarea id="jsonInput">
 {
   "cards": [
     {
@@ -11,7 +28,8 @@
       "start": "08:30",
       "end": "10:00",
       "todos": ["パレード", "昼ごはん"],
-      "mapLink": "https://maps.google.com"
+      "lat": 34.34,
+      "lng": 136.83
     },
     {
       "type": "move",
@@ -19,28 +37,47 @@
       "start": "10:00",
       "end": "10:30",
       "duration": "30分",
-      "navLink": "https://www.google.com/maps/dir/?api=1&destination=34.48,136.84"
+      "lat": 34.48,
+      "lng": 136.84
     }
   ]
 }
 </textarea>
 
-<br><br>
-<button onclick="gen()">URL生成</button>
+<br>
+<button onclick="generate()">URL生成</button>
+<button onclick="copyUrl()">コピー</button>
 
-<p id="out"></p>
-
-<script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+<div id="out"></div>
 
 <script>
-function gen() {
-  const json = document.getElementById("json").value;
+const BASE_URL = "https://ユーザー名.github.io/SimilarBird/";
 
-  const compressed = LZString.compressToEncodedURIComponent(json);
+let currentUrl = "";
 
-  const url = location.origin + "/?d=" + compressed;
+function generate() {
+  try {
+    const json = document.getElementById("jsonInput").value;
 
-  document.getElementById("out").innerText = url;
+    const compressed = LZString.compressToEncodedURIComponent(json);
+
+    currentUrl = BASE_URL + "?d=" + compressed;
+
+    document.getElementById("out").innerText = currentUrl;
+  } catch (e) {
+    alert("生成失敗");
+  }
+}
+
+function copyUrl() {
+  if (!currentUrl) {
+    alert("先にURL生成してください");
+    return;
+  }
+
+  navigator.clipboard.writeText(currentUrl)
+    .then(() => alert("コピーしました！"))
+    .catch(() => alert("コピー失敗"));
 }
 </script>
 
