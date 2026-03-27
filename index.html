@@ -33,7 +33,7 @@ body { margin:0; font-family:sans-serif; background:#f5f5f5; }
 .now { border:2px solid #007aff; }
 
 .map {
-  height:160px;
+  height:180px;
   margin-top:10px;
   border-radius:8px;
 }
@@ -72,7 +72,7 @@ function loadData() {
 
 const data = loadData();
 
-// ===== 現在 =====
+// ===== 現在カード =====
 function getNowIndex(cards) {
   const now = new Date();
   const m = now.getHours()*60 + now.getMinutes();
@@ -107,11 +107,9 @@ data.cards.forEach((c,i)=>{
   el.querySelector(".header").onclick = ()=>{
     el.classList.toggle("open");
 
-    if (el.classList.contains("open")) {
-      const mapDiv = el.querySelector(".map");
-      if (mapDiv && mapDiv._map) {
-        setTimeout(()=>mapDiv._map.invalidateSize(),100);
-      }
+    const mapDiv = el.querySelector(".map");
+    if (mapDiv && mapDiv._map) {
+      setTimeout(()=>mapDiv._map.invalidateSize(),100);
     }
   };
 
@@ -167,7 +165,7 @@ function render(c,i){
   return html;
 }
 
-// ===== 地図 =====
+// ===== 地図＋現在地 =====
 setTimeout(()=>{
   data.cards.forEach((c,i)=>{
     if (!c.lat) return;
@@ -178,12 +176,34 @@ setTimeout(()=>{
 
     L.marker([c.lat,c.lng]).addTo(map);
 
-    // ルート線
     if (c.route){
-      L.polyline(c.route, {color:"blue"}).addTo(map);
+      L.polyline(c.route,{color:"blue"}).addTo(map);
     }
 
     document.getElementById(`map-${i}`)._map = map;
+
+    // ===== 現在地表示 =====
+    if (navigator.geolocation){
+      navigator.geolocation.watchPosition(pos=>{
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+
+        if (!map._userMarker){
+          map._userMarker = L.circleMarker([lat,lng],{
+            radius:8,
+            color:"blue"
+          }).addTo(map);
+        } else {
+          map._userMarker.setLatLng([lat,lng]);
+        }
+
+      }, ()=>{}, {
+        enableHighAccuracy:true,
+        maximumAge:10000,
+        timeout:5000
+      });
+    }
+
   });
 },100);
 
