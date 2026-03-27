@@ -7,14 +7,14 @@
 
 <style>
 body { font-family:sans-serif; padding:20px; }
-textarea { width:100%; height:260px; }
+textarea { width:100%; height:280px; }
 button { margin-top:10px; padding:10px; }
 #out { margin-top:10px; word-break:break-all; }
 </style>
 </head>
 <body>
 
-<h2>行程JSON</h2>
+<h2>行程JSON（サンプル付き）</h2>
 
 <textarea id="jsonInput">
 {
@@ -88,9 +88,9 @@ function generate() {
 }
 
 function copyUrl() {
-  if (!currentUrl) return alert("先に生成");
+  if (!currentUrl) return alert("先に生成してください");
   navigator.clipboard.writeText(currentUrl)
-    .then(()=>alert("コピー完了"));
+    .then(()=>alert("コピーしました"));
 }
 </script>
 
