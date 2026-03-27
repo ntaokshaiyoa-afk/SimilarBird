@@ -1,20 +1,17 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8">
 <title>Timeline Maker</title>
-
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 
 <style>
 body { font-family:sans-serif; padding:20px; }
-textarea { width:100%; height:200px; }
+textarea { width:100%; height:260px; }
 button { margin-top:10px; padding:10px; }
 #out { margin-top:10px; word-break:break-all; }
 </style>
 </head>
-
 <body>
 
 <h2>行程JSON</h2>
@@ -38,6 +35,35 @@ button { margin-top:10px; padding:10px; }
       "end": "10:30",
       "duration": "30分",
       "lat": 34.48,
+      "lng": 136.84,
+      "route": [
+        [34.34,136.83],
+        [34.40,136.82],
+        [34.48,136.84]
+      ]
+    },
+    {
+      "type": "move",
+      "mode": "train",
+      "start": "10:30",
+      "end": "11:30",
+      "steps": [
+        {
+          "line": "近鉄志摩線",
+          "from": "鵜方",
+          "to": "鳥羽",
+          "depart": "10:35",
+          "arrive": "11:10"
+        }
+      ]
+    },
+    {
+      "type": "activity",
+      "title": "鳥羽水族館",
+      "start": "11:30",
+      "end": "13:00",
+      "todos": ["ジュゴン", "ペンギン"],
+      "lat": 34.48,
       "lng": 136.84
     }
   ]
@@ -52,32 +78,19 @@ button { margin-top:10px; padding:10px; }
 
 <script>
 const BASE_URL = "https://ntaokshaiyoa-afk.github.io/SimilarBird/";
-
 let currentUrl = "";
 
 function generate() {
-  try {
-    const json = document.getElementById("jsonInput").value;
-
-    const compressed = LZString.compressToEncodedURIComponent(json);
-
-    currentUrl = BASE_URL + "?d=" + compressed;
-
-    document.getElementById("out").innerText = currentUrl;
-  } catch (e) {
-    alert("生成失敗");
-  }
+  const json = document.getElementById("jsonInput").value;
+  const compressed = LZString.compressToEncodedURIComponent(json);
+  currentUrl = BASE_URL + "?d=" + compressed;
+  document.getElementById("out").innerText = currentUrl;
 }
 
 function copyUrl() {
-  if (!currentUrl) {
-    alert("先にURL生成してください");
-    return;
-  }
-
+  if (!currentUrl) return alert("先に生成");
   navigator.clipboard.writeText(currentUrl)
-    .then(() => alert("コピーしました！"))
-    .catch(() => alert("コピー失敗"));
+    .then(()=>alert("コピー完了"));
 }
 </script>
 
