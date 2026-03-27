@@ -3,18 +3,17 @@
 // ===== URLからデータ取得 =====
 function loadData() {
   const params = new URLSearchParams(location.search);
-  const encoded = params.get("data");
+  const compressed = params.get("d");
 
-  if (!encoded) return sampleData;
+  if (!compressed) return sampleData;
 
   try {
-    const json = decodeURIComponent(atob(encoded));
+    const json = LZString.decompressFromEncodedURIComponent(compressed);
     return JSON.parse(json);
   } catch (e) {
     alert("データ読み込み失敗");
     return sampleData;
   }
-}
 
 // ===== サンプル（fallback） =====
 const sampleData = {
