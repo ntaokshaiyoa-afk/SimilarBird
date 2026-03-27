@@ -30,11 +30,16 @@
 
 <p id="out"></p>
 
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+
 <script>
 function gen() {
   const json = document.getElementById("json").value;
-  const encoded = btoa(encodeURIComponent(json));
-  const url = location.origin + "/?data=" + encoded;
+
+  const compressed = LZString.compressToEncodedURIComponent(json);
+
+  const url = location.origin + "/?d=" + compressed;
+
   document.getElementById("out").innerText = url;
 }
 </script>
