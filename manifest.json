@@ -1,0 +1,9 @@
+{
+  "name": "旅行プラン",
+  "short_name": "旅行",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#007aff",
+  "icons": []
+}
