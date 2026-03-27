@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<textarea id="json" rows="10" cols="40">
+{
+  "cards": [
+    {
+      "type": "activity",
+      "title": "志摩スペイン村",
+      "start": "08:30",
+      "end": "10:00",
+      "todos": ["パレード", "昼ごはん"],
+      "mapLink": "https://maps.google.com"
+    },
+    {
+      "type": "move",
+      "mode": "car",
+      "start": "10:00",
+      "end": "10:30",
+      "duration": "30分",
+      "navLink": "https://www.google.com/maps/dir/?api=1&destination=34.48,136.84"
+    }
+  ]
+}
+</textarea>
+
+<br><br>
+<button onclick="gen()">URL生成</button>
+
+<p id="out"></p>
+
+<script>
+function gen() {
+  const json = document.getElementById("json").value;
+  const encoded = btoa(encodeURIComponent(json));
+  const url = location.origin + "/?data=" + encoded;
+  document.getElementById("out").innerText = url;
+}
+</script>
+
+</body>
+</html>
