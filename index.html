@@ -12,70 +12,46 @@
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 
 <style>
-body { margin:0; font-family:sans-serif; background:#f5f5f5; }
-
-.card {
-  background:white;
-  margin:10px;
-  border-radius:12px;
-  padding:12px;
-}
-
-.header {
-  display:flex;
-  justify-content:space-between;
-  cursor:pointer;
-}
-
-.details { display:none; margin-top:10px; }
-.card.open .details { display:block; }
-
-.now { border:2px solid #007aff; }
-
-.map {
-  height:180px;
-  margin-top:10px;
-  border-radius:8px;
-}
-
-.next-bar {
-  position:fixed;
-  bottom:0;
-  left:0;
-  right:0;
-  background:#007aff;
-  color:white;
-  padding:10px;
-}
-
-.train-step {
-  border-left:3px solid #007aff;
-  padding-left:8px;
-  margin:6px 0;
-}
+body{margin:0;font-family:sans-serif;background:#f5f5f5;}
+.card{background:white;margin:10px;border-radius:12px;padding:12px;}
+.header{display:flex;justify-content:space-between;cursor:pointer;}
+.details{display:none;margin-top:10px;}
+.card.open .details{display:block;}
+.now{border:2px solid #007aff;}
+.map{height:180px;margin-top:10px;border-radius:8px;}
+.next-bar{position:fixed;bottom:0;left:0;right:0;background:#007aff;color:white;padding:10px;}
+.btn{padding:6px 10px;margin:5px;border:1px solid #ccc;border-radius:6px;cursor:pointer;}
+.train-step{border-left:3px solid #007aff;padding-left:8px;margin:6px 0;}
 </style>
 </head>
 
 <body>
 
+<div style="padding:10px;">
+<button class="btn" onclick="toggleFollow()">📍追従: <span id="followState">OFF</span></button>
+</div>
+
 <div id="list"></div>
 <div id="nextBar" class="next-bar"></div>
 
 <script>
-// ===== データ =====
-function loadData() {
-  const p = new URLSearchParams(location.search);
-  const d = p.get("d");
-  if (!d) return { cards: [] };
-  return JSON.parse(LZString.decompressFromEncodedURIComponent(d));
+let follow=false;
+
+function toggleFollow(){
+  follow=!follow;
+  followState.innerText=follow?"ON":"OFF";
 }
 
-const data = loadData();
+function loadData(){
+  const p=new URLSearchParams(location.search);
+  const d=p.get("d");
+  return d?JSON.parse(LZString.decompressFromEncodedURIComponent(d)):{cards:[]};
+}
 
-// ===== 現在カード =====
-function getNowIndex(cards) {
-  const now = new Date();
-  const m = now.getHours()*60 + now.getMinutes();
+const data=loadData();
+
+function nowIndex(cards){
+  const m=new Date().getHours()*60+new Date().getMinutes();
   return cards.findIndex(c=>{
     const [sh,sm]=c.start.split(":").map(Number);
     const [eh,em]=c.end.split(":").map(Number);
@@ -83,135 +59,113 @@ function getNowIndex(cards) {
   });
 }
 
-const nowIndex = getNowIndex(data.cards);
-const list = document.getElementById("list");
-const nextBar = document.getElementById("nextBar");
+const idx=nowIndex(data.cards);
 
-// ===== 描画 =====
 data.cards.forEach((c,i)=>{
-  const el = document.createElement("div");
-  el.className = "card";
+  const el=document.createElement("div");
+  el.className="card";
+  if(i===idx) el.classList.add("open","now");
 
-  if (i===nowIndex) el.classList.add("open","now");
+  el.innerHTML=`
+  <div class="header">
+    <div>🕒 ${c.start}-${c.end}<br>${title(c)}</div>▶
+  </div>
+  <div class="details">${render(c,i)}</div>`;
 
-  el.innerHTML = `
-    <div class="header">
-      <div>
-        🕒 ${c.start}-${c.end}<br>
-        ${title(c)}
-      </div>▶
-    </div>
-    <div class="details">${render(c,i)}</div>
-  `;
-
-  el.querySelector(".header").onclick = ()=>{
+  el.querySelector(".header").onclick=()=>{
     el.classList.toggle("open");
-
-    const mapDiv = el.querySelector(".map");
-    if (mapDiv && mapDiv._map) {
-      setTimeout(()=>mapDiv._map.invalidateSize(),100);
-    }
+    const m=el.querySelector(".map");
+    if(m&&m._map)setTimeout(()=>m._map.invalidateSize(),100);
   };
 
   list.appendChild(el);
 });
 
-// ===== 次カード =====
-if (nowIndex>=0 && nowIndex<data.cards.length-1){
-  const n = data.cards[nowIndex+1];
-  nextBar.innerText = `次 ▶ ${title(n)}`;
-}
-
-// ===== タイトル =====
 function title(c){
-  if (c.type==="move"){
-    if (c.mode==="train") return "🚃 電車移動";
+  if(c.type==="move"){
+    if(c.mode==="train") return "🚃 電車";
     return "🚗 移動";
   }
   return c.title;
 }
 
-// ===== 詳細 =====
 function render(c,i){
-  let html="";
-
-  if (c.type==="activity"){
-    html += `🎯 ${c.todos?.join(", ") || ""}<br>`;
-  }
-
-  if (c.type==="move"){
-    if (c.mode==="car"){
-      html += `⏱ ${c.duration}<br>
+  let h="";
+  if(c.type==="activity") h+=`🎯 ${c.todos?.join(",")}<br>`;
+  if(c.type==="move"){
+    if(c.mode==="car"){
+      h+=`⏱ ${c.duration}<br>
       <a href="https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}" target="_blank">🚗 ナビ</a><br>`;
     }
-
-    if (c.mode==="train"){
-      html += `<div>🚃 乗換案内</div>`;
+    if(c.mode==="train"){
       c.steps.forEach(s=>{
-        html += `
-        <div class="train-step">
-          ${s.depart} ${s.from}<br>
-          ↓ ${s.line}<br>
-          ${s.arrive} ${s.to}
-        </div>`;
+        h+=`<div class="train-step">${s.depart} ${s.from}<br>↓${s.line}<br>${s.arrive} ${s.to}</div>`;
       });
     }
   }
-
-  if (c.lat){
-    html += `<div id="map-${i}" class="map"></div>`;
-  }
-
-  return html;
+  if(c.lat) h+=`<div id="map-${i}" class="map"></div><div id="dist-${i}"></div>`;
+  return h;
 }
 
 // ===== 地図＋現在地 =====
 setTimeout(()=>{
   data.cards.forEach((c,i)=>{
-    if (!c.lat) return;
+    if(!c.lat) return;
 
-    const map = L.map(`map-${i}`).setView([c.lat,c.lng],13);
-
+    const map=L.map(`map-${i}`).setView([c.lat,c.lng],13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
     L.marker([c.lat,c.lng]).addTo(map);
 
-    if (c.route){
-      L.polyline(c.route,{color:"blue"}).addTo(map);
-    }
+    if(c.route) L.polyline(c.route,{color:"blue"}).addTo(map);
 
-    document.getElementById(`map-${i}`)._map = map;
+    document.getElementById(`map-${i}`)._map=map;
 
-    // ===== 現在地表示 =====
-    if (navigator.geolocation){
+    if(navigator.geolocation){
       navigator.geolocation.watchPosition(pos=>{
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
+        const lat=pos.coords.latitude;
+        const lng=pos.coords.longitude;
 
-        if (!map._userMarker){
-          map._userMarker = L.circleMarker([lat,lng],{
-            radius:8,
-            color:"blue"
-          }).addTo(map);
-        } else {
-          map._userMarker.setLatLng([lat,lng]);
+        if(!map._user){
+          map._user=L.circleMarker([lat,lng],{radius:8,color:"blue"}).addTo(map);
+        }else{
+          map._user.setLatLng([lat,lng]);
         }
 
-      }, ()=>{}, {
-        enableHighAccuracy:true,
-        maximumAge:10000,
-        timeout:5000
+        // 距離
+        const dist=calcDist(lat,lng,c.lat,c.lng);
+        document.getElementById(`dist-${i}`).innerText=`距離: ${dist}km`;
+
+        if(follow) map.setView([lat,lng]);
+
       });
     }
-
   });
 },100);
 
-// ===== PWA =====
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./service-worker.js');
+// 距離
+function calcDist(a,b,c,d){
+  return (Math.sqrt((a-c)**2+(b-d)**2)*111).toFixed(1);
 }
-</script>
 
+// 通知
+if(Notification.permission!=="granted"){
+  Notification.requestPermission();
+}
+
+setInterval(()=>{
+  const next=data.cards[idx+1];
+  if(!next) return;
+
+  const now=new Date();
+  const [h,m]=next.start.split(":").map(Number);
+  const t=new Date();
+  t.setHours(h,m);
+
+  if(t-now<300000 && t-now>0){
+    new Notification("次の予定",{body:next.title||"移動"});
+  }
+},60000);
+
+</script>
 </body>
 </html>
