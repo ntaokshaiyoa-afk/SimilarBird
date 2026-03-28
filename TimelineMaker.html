@@ -4,17 +4,16 @@
 <meta charset="UTF-8">
 <title>Timeline Maker</title>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
-
 <style>
-body { font-family:sans-serif; padding:20px; }
-textarea { width:100%; height:280px; }
-button { margin-top:10px; padding:10px; }
-#out { margin-top:10px; word-break:break-all; }
+body{font-family:sans-serif;padding:20px;}
+textarea{width:100%;height:280px;}
+button{margin-top:10px;padding:10px;}
+#out{margin-top:10px;word-break:break-all;}
 </style>
 </head>
 <body>
 
-<h2>行程JSON（サンプル付き）</h2>
+<h2>行程JSON</h2>
 
 <textarea id="jsonInput">
 {
@@ -24,7 +23,7 @@ button { margin-top:10px; padding:10px; }
       "title": "志摩スペイン村",
       "start": "08:30",
       "end": "10:00",
-      "todos": ["パレード", "昼ごはん"],
+      "todos": ["パレード","昼ごはん"],
       "lat": 34.34,
       "lng": 136.83
     },
@@ -48,13 +47,7 @@ button { margin-top:10px; padding:10px; }
       "start": "10:30",
       "end": "11:30",
       "steps": [
-        {
-          "line": "近鉄志摩線",
-          "from": "鵜方",
-          "to": "鳥羽",
-          "depart": "10:35",
-          "arrive": "11:10"
-        }
+        {"line":"近鉄志摩線","from":"鵜方","to":"鳥羽","depart":"10:35","arrive":"11:10"}
       ]
     },
     {
@@ -62,7 +55,7 @@ button { margin-top:10px; padding:10px; }
       "title": "鳥羽水族館",
       "start": "11:30",
       "end": "13:00",
-      "todos": ["ジュゴン", "ペンギン"],
+      "todos": ["ジュゴン","ペンギン"],
       "lat": 34.48,
       "lng": 136.84
     }
@@ -71,26 +64,24 @@ button { margin-top:10px; padding:10px; }
 </textarea>
 
 <br>
-<button onclick="generate()">URL生成</button>
-<button onclick="copyUrl()">コピー</button>
+<button onclick="gen()">URL生成</button>
+<button onclick="copy()">コピー</button>
 
 <div id="out"></div>
 
 <script>
-const BASE_URL = "https://ntaokshaiyoa-afk.github.io/SimilarBird/";
-let currentUrl = "";
+const BASE="https://ntaokshaiyoa-afk.github.io/SimilarBird/";
+let url="";
 
-function generate() {
-  const json = document.getElementById("jsonInput").value;
-  const compressed = LZString.compressToEncodedURIComponent(json);
-  currentUrl = BASE_URL + "?d=" + compressed;
-  document.getElementById("out").innerText = currentUrl;
+function gen(){
+  const json=document.getElementById("jsonInput").value;
+  const d=LZString.compressToEncodedURIComponent(json);
+  url=BASE+"?d="+d;
+  out.innerText=url;
 }
 
-function copyUrl() {
-  if (!currentUrl) return alert("先に生成してください");
-  navigator.clipboard.writeText(currentUrl)
-    .then(()=>alert("コピーしました"));
+function copy(){
+  navigator.clipboard.writeText(url).then(()=>alert("コピーOK"));
 }
 </script>
 
