@@ -13,19 +13,24 @@
 <style>
 body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 .card{background:white;margin:10px;padding:12px;border-radius:12px;}
-.map{height:150px;margin-top:10px;}
+.map{height:160px;margin-top:10px;border-radius:8px;}
+.md{background:#fafafa;padding:8px;margin-top:8px;border-radius:8px;}
 </style>
 </head>
 
 <body>
+
 <div id="list"></div>
 
 <script>
+// ===== データ =====
 const raw=new URLSearchParams(location.search).get("d");
 const data=JSON.parse(LZString.decompressFromEncodedURIComponent(raw));
 
 let stations=[];
-fetch("./stations.json").then(r=>r.json()).then(s=>stations=s);
+let lineCache={};
+
+await fetch("./stations.json").then(r=>r.json()).then(s=>stations=s);
 
 // ===== 最寄駅 =====
 function nearest(lat,lng){
@@ -37,48 +42,138 @@ function nearest(lat,lng){
   return best;
 }
 
-// ===== 路線判定 =====
-function guessLine(a,b){
+// ===== 共通路線 =====
+function commonLine(a,b){
   if(!a||!b) return null;
   return a.lines.find(l=>b.lines.includes(l));
+}
+
+// ===== 乗換探索（簡易 BFS）=====
+function findRoute(a,b){
+  if(!a||!b) return null;
+
+  // 同一路線
+  const direct=commonLine(a,b);
+  if(direct) return [a,b];
+
+  // 1回乗換
+  for(const mid of stations){
+    if(commonLine(a,mid) && commonLine(mid,b)){
+      return [a,mid,b];
+    }
+  }
+
+  return null;
+}
+
+// ===== GeoJSON取得 =====
+async function loadLine(line){
+  if(lineCache[line]) return lineCache[line];
+
+  try{
+    const res=await fetch(`./lines/${line}.geojson`);
+    if(!res.ok) throw 0;
+    const json=await res.json();
+    lineCache[line]=json;
+    return json;
+  }catch{
+    return null;
+  }
 }
 
 // ===== 描画 =====
 data.d[0].c.forEach((c,i)=>{
   const el=document.createElement("div");
   el.className="card";
-  el.innerHTML=`${c.s}-${c.e} ${c.tt||""}<div id="m${i}" class="map"></div>`;
+
+  el.innerHTML=`
+    <b>${c.s}-${c.e}</b><br>
+    ${c.tt||""}
+    ${c.cm?`<div class="md">${marked.parse(c.cm)}</div>`:""}
+    ${c.la?`<div id="m${i}" class="map"></div>`:""}
+  `;
+
   list.appendChild(el);
 
-  setTimeout(()=>initMap(i,c),0);
+  if(c.la) setTimeout(()=>initMap(i,c),0);
 });
 
+// ===== 地図 =====
 async function initMap(i,c){
   const map=L.map(`m${i}`).setView([c.la,c.lo],13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
   L.marker([c.la,c.lo]).addTo(map);
 
   const prev=data.d[0].c[i-1];
   if(!prev) return;
 
   if(c.m==="train"){
-    const a=nearest(prev.la,prev.lo);
-    const b=nearest(c.la,c.lo);
-    const line=guessLine(a,b);
+    await drawTrain(map, prev, c);
+  }else if(c.m==="car"){
+    await drawCar(map, prev, c);
+  }else{
+    drawLine(map, prev, c, "gray");
+  }
+}
 
-    if(line){
-      try{
-        const geo=await fetch(`./lines/${line}.geojson`).then(r=>r.json());
-        L.geoJSON(geo,{color:"blue"}).addTo(map);
-        return;
-      }catch{}
-    }
+// ===== 車 =====
+async function drawCar(map, prev, cur){
+  try{
+    const url=`https://router.project-osrm.org/route/v1/driving/${prev.lo},${prev.la};${cur.lo},${cur.la}?overview=full&geometries=geojson`;
+    const json=await fetch(url).then(r=>r.json());
+    const coords=json.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+    L.polyline(coords,{color:"black"}).addTo(map);
+  }catch{
+    drawLine(map, prev, cur, "black");
+  }
+}
+
+// ===== 電車 =====
+async function drawTrain(map, prev, cur){
+  const a=nearest(prev.la,prev.lo);
+  const b=nearest(cur.la,cur.lo);
+
+  const route=findRoute(a,b);
+
+  if(!route){
+    drawLine(map, prev, cur, "blue");
+    return;
   }
 
-  // fallback
-  L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{dashArray:"6,6"}).addTo(map);
+  for(let i=0;i<route.length-1;i++){
+    const s1=route[i];
+    const s2=route[i+1];
+    const line=commonLine(s1,s2);
+
+    if(!line){
+      drawLine(map, s1, s2, "blue");
+      continue;
+    }
+
+    const geo=await loadLine(line);
+
+    if(geo){
+      L.geoJSON(geo,{style:{color:"blue",weight:4}}).addTo(map);
+    }else{
+      drawLine(map, s1, s2, "blue");
+    }
+  }
+}
+
+// ===== 線 =====
+function drawLine(map,a,b,color){
+  const lat1=a.lat||a.la;
+  const lng1=a.lng||a.lo;
+  const lat2=b.lat||b.la;
+  const lng2=b.lng||b.lo;
+
+  L.polyline([[lat1,lng1],[lat2,lng2]],{
+    color:color,
+    dashArray:"6,6"
+  }).addTo(map);
 }
 </script>
+
 </body>
 </html>
