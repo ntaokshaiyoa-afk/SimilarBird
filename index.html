@@ -5,102 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SimilarBird</title>
 
-<link rel="manifest" href="./manifest.json">
-
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 
 <style>
-body{
-  margin:0;
-  font-family:sans-serif;
-  background:#f5f5f5;
-}
-
-/* 上部 */
-.top{
-  position:sticky;
-  top:0;
-  background:white;
-  z-index:1000; /* ←重要 */
-  padding:10px;
-  border-bottom:1px solid #ddd;
-}
-
-/* カード */
-.card{
-  background:white;
-  margin:10px;
-  border-radius:12px;
-  padding:12px;
-  position:relative;
-  z-index:1;
-}
-
-.header{
-  display:flex;
-  justify-content:space-between;
-  cursor:pointer;
-}
-
-.details{
-  display:none;
-  margin-top:10px;
-}
-
-.card.open .details{
-  display:block;
-}
-
-.now{
-  border:2px solid #007aff;
-}
-
-/* 地図 */
-.map{
-  height:180px;
-  margin-top:10px;
-  border-radius:8px;
-  z-index:0; /* ←重要 */
-}
-
-/* Leaflet対策 */
-.leaflet-container{
-  z-index:0 !important;
-}
-
-/* フッター */
-.next-bar{
-  position:fixed;
-  bottom:0;
-  left:0;
-  right:0;
-  background:#007aff;
-  color:white;
-  padding:10px;
-  z-index:1000; /* ←重要 */
-}
-
-/* 被り防止 */
-body::after{
-  content:"";
-  display:block;
-  height:80px;
-}
-
-/* その他 */
-.btn{padding:6px 10px;margin:5px;border:1px solid #ccc;border-radius:6px;}
-.train-step{border-left:3px solid #007aff;padding-left:8px;margin:6px 0;}
-
+body{margin:0;font-family:sans-serif;background:#f5f5f5;}
+.top{position:sticky;top:0;background:white;z-index:1000;padding:10px;}
+.card{background:white;margin:10px;border-radius:12px;padding:12px;}
+.header{display:flex;justify-content:space-between;cursor:pointer;}
+.details{display:none;margin-top:10px;}
+.card.open .details{display:block;}
+.map{height:180px;border-radius:8px;}
+.leaflet-container{z-index:0!important;}
+.next-bar{position:fixed;bottom:0;width:100%;background:#007aff;color:white;padding:10px;z-index:1000;}
+.good{background:#e8f5e9;} .warn{background:#fff8e1;} .bad{background:#ffebee;}
 </style>
 </head>
 
 <body>
 
 <div class="top">
-  <div id="currentTask">読み込み中...</div>
-  <button class="btn" onclick="toggleFollow()">📍追従: <span id="followState">OFF</span></button>
+  <div id="current"></div>
+  <button onclick="toggleFollow()">追従</button>
+  <button onclick="skip()">スキップ</button>
 </div>
 
 <div id="list"></div>
@@ -109,126 +37,121 @@ body::after{
 <script>
 // ===== 状態 =====
 let follow=false;
-let userLat=null,userLng=null;
+let userLat,userLng;
+let currentIndex=0;
 
 // ===== データ =====
-function loadData(){
-  const d=new URLSearchParams(location.search).get("d");
-  return d?JSON.parse(LZString.decompressFromEncodedURIComponent(d)):{cards:[]};
-}
-const data=loadData();
-
-// ===== 現在 =====
-function nowIndex(){
-  const m=new Date().getHours()*60+new Date().getMinutes();
-  return data.cards.findIndex(c=>{
-    const [sh,sm]=c.start.split(":").map(Number);
-    const [eh,em]=c.end.split(":").map(Number);
-    return m>=sh*60+sm && m<eh*60+em;
-  });
-}
-const idx=nowIndex();
+const data=JSON.parse(LZString.decompressFromEncodedURIComponent(new URLSearchParams(location.search).get("d")));
 
 // ===== 描画 =====
 data.cards.forEach((c,i)=>{
   const el=document.createElement("div");
   el.className="card";
 
-  if(i===idx) el.classList.add("open","now");
-
   el.innerHTML=`
-    <div class="header">
-      <div>🕒 ${c.start}-${c.end}<br>${title(c)}</div>▶
-    </div>
-    <div class="details">
-      ${render(c,i)}
-    </div>
-  `;
+  <div class="header">${c.start}-${c.end} ${title(c)}</div>
+  <div class="details">
+    ${render(c,i)}
+  </div>`;
 
   el.querySelector(".header").onclick=()=>{
     el.classList.toggle("open");
-
-    if(el.classList.contains("open")){
-      initMap(i,c);
-
-      // ←ズレ修正
-      setTimeout(()=>{
-        const mapDiv=document.getElementById(`map-${i}`);
-        mapDiv?._map?.invalidateSize();
-      },100);
-    }
+    if(c.lat) initMap(i,c);
   };
 
   list.appendChild(el);
 });
 
-// ===== 初期カードの地図を強制生成（重要） =====
-setTimeout(()=>{
-  if(idx>=0){
-    const c=data.cards[idx];
-    initMap(idx,c);
-
-    setTimeout(()=>{
-      const mapDiv=document.getElementById(`map-${idx}`);
-      mapDiv?._map?.invalidateSize();
-    },150);
-  }
-},100);
-
-// ===== 上部 =====
-if(idx>=0){
-  const c=data.cards[idx];
-  currentTask.innerHTML=`▶ 今: ${title(c)}`;
-}
-
-// ===== フッター =====
-if(idx>=0 && idx<data.cards.length-1){
-  nextBar.innerText=`次 ▶ ${title(data.cards[idx+1])}`;
-}
-
 // ===== タイトル =====
 function title(c){
-  if(c.type==="move"){
-    return c.mode==="train"?"🚃 電車":"🚗 移動";
-  }
+  if(c.type==="move") return c.mode==="train"?"🚃":"🚗";
   return c.title;
 }
 
 // ===== 詳細 =====
 function render(c,i){
   let h="";
-
-  if(c.type==="activity"){
-    h+=`🎯 ${c.todos?.join(",")}<br>`;
+  if(c.type==="activity") h+=c.todos?.join(",");
+  if(c.mode==="train"){
+    c.steps.forEach(s=>{
+      h+=`<div>${s.depart}→${s.arrive} ${s.line}</div>`;
+    });
   }
-
-  if(c.lat){
-    h+=`<div id="map-${i}" class="map"></div>`;
-  }
-
+  if(c.lat) h+=`<div id="map-${i}" class="map"></div><div id="info-${i}"></div>`;
   return h;
 }
 
 // ===== 地図 =====
 function initMap(i,c){
   const div=document.getElementById(`map-${i}`);
-  if(!div || div._map) return;
+  if(div._map) return;
 
   const map=L.map(div).setView([c.lat,c.lng],13);
-
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
   L.marker([c.lat,c.lng]).addTo(map);
 
+  if(c.route) L.polyline(c.route).addTo(map);
+
   div._map=map;
+}
+
+// ===== 現在地 =====
+navigator.geolocation.watchPosition(pos=>{
+  userLat=pos.coords.latitude;
+  userLng=pos.coords.longitude;
+
+  updateAll();
+});
+
+// ===== 更新 =====
+function updateAll(){
+  data.cards.forEach((c,i)=>{
+    if(!c.lat) return;
+
+    const d=dist(userLat,userLng,c.lat,c.lng);
+    const dir=direction(userLat,userLng,c.lat,c.lng);
+
+    const el=document.getElementById(`info-${i}`);
+    el.innerText=`${d}km ${dir}`;
+
+    // 到着判定
+    if(d<0.2 && i===currentIndex){
+      nextCard();
+    }
+  });
+}
+
+// ===== 次へ =====
+function nextCard(){
+  currentIndex++;
+  document.querySelectorAll(".card")[currentIndex]?.scrollIntoView();
+}
+
+// ===== スキップ =====
+function skip(){
+  nextCard();
+}
+
+// ===== 距離 =====
+function dist(a,b,c,d){
+  return (Math.sqrt((a-c)**2+(b-d)**2)*111).toFixed(1);
+}
+
+// ===== 方角 =====
+function direction(a,b,c,d){
+  const dx=c-a, dy=d-b;
+  if(Math.abs(dx)>Math.abs(dy)){
+    return dx>0?"南":"北";
+  }else{
+    return dy>0?"東":"西";
+  }
 }
 
 // ===== UI =====
 function toggleFollow(){
   follow=!follow;
-  followState.innerText=follow?"ON":"OFF";
 }
 
 </script>
-
 </body>
 </html>
