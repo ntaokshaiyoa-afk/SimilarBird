@@ -2,144 +2,182 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Timeline Maker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timeline Editor</title>
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <style>
-body{font-family:sans-serif;padding:20px;}
-textarea{width:100%;height:320px;}
-button{margin-top:10px;padding:10px;}
-#out{
-  margin-top:10px;
-  word-break:break-all;
-  user-select:all;
-  padding:10px;
-  background:#f0f0f0;
+body{font-family:sans-serif;margin:0;background:#f5f5f5;}
+
+.top{
+  position:sticky;top:0;background:white;padding:10px;z-index:10;
 }
-#qr{margin-top:20px;}
+
+.card{
+  background:white;margin:10px;padding:10px;border-radius:10px;
+  cursor:pointer;
+}
+
+button{margin:5px;padding:8px;}
+
+#editor{
+  position:fixed;top:10%;left:5%;right:5%;
+  background:white;padding:10px;border-radius:10px;
+  display:none;z-index:100;
+}
+
+#map{height:200px;margin-top:10px;}
+#out{word-break:break-all;background:#eee;padding:10px;}
 </style>
 </head>
 
 <body>
 
-<h2>行程JSON</h2>
+<div class="top">
+  <button onclick="addCard('activity')">➕ 観光</button>
+  <button onclick="addCard('move')">➕ 移動</button>
+  <button onclick="generate()">URL生成</button>
+  <button onclick="copy()">コピー</button>
+  <button onclick="makeQR()">QR</button>
+</div>
 
-<textarea id="jsonInput">
-{
-  "cards": [
-    {
-      "type": "activity",
-      "title": "志摩スペイン村",
-      "start": "08:30",
-      "end": "10:00",
-      "todos": ["パレード","昼ごはん"],
-      "lat": 34.34,
-      "lng": 136.83
-    },
-    {
-      "type": "move",
-      "mode": "car",
-      "start": "10:00",
-      "end": "10:30",
-      "duration": "30分",
-      "lat": 34.48,
-      "lng": 136.84,
-      "route": [[34.34,136.83],[34.48,136.84]]
-    },
-    {
-      "type": "move",
-      "mode": "train",
-      "start": "10:30",
-      "end": "11:30",
-      "lat": 34.48,
-      "lng": 136.84,
-      "steps": [
-        {"line":"近鉄志摩線","from":"鵜方","to":"鳥羽","depart":"10:35","arrive":"11:10"}
-      ]
-    },
-    {
-      "type": "activity",
-      "title": "鳥羽水族館",
-      "start": "11:30",
-      "end": "13:00",
-      "todos": ["ジュゴン","ペンギン"],
-      "lat": 34.48,
-      "lng": 136.84
-    }
-  ]
-}
-</textarea>
+<div id="list"></div>
 
-<br>
-<button onclick="generate()">URL生成</button>
-<button onclick="copy()">コピー</button>
-<button onclick="makeQR()">QR生成</button>
+<div id="editor">
+  <input id="title" placeholder="タイトル"><br>
+  <input id="start" placeholder="08:30">
+  <input id="end" placeholder="10:00"><br>
+  <textarea id="todos" placeholder="やること"></textarea>
+  <div id="map"></div>
+  <button onclick="saveEdit()">保存</button>
+</div>
 
 <div id="out"></div>
 <canvas id="qr"></canvas>
 
 <script>
-const BASE="https://ntaokshaiyoa-afk.github.io/SimilarBird/";
-let url="";
+// ===== データ =====
+let data=JSON.parse(localStorage.getItem("timeline")||'{"cards":[]}');
+let editingIndex=null;
+let map,marker;
+
+// ===== 描画 =====
+function render(){
+  list.innerHTML="";
+  data.cards.forEach((c,i)=>{
+    const el=document.createElement("div");
+    el.className="card";
+    el.innerHTML=`${c.start}-${c.end} ${c.title||c.mode}`;
+    el.onclick=()=>edit(i);
+    list.appendChild(el);
+  });
+  saveLocal();
+}
+
+// ===== 保存 =====
+function saveLocal(){
+  localStorage.setItem("timeline",JSON.stringify(data));
+}
+
+// ===== 追加 =====
+function addCard(type){
+  const c={
+    type:type,
+    start:"09:00",
+    end:"10:00"
+  };
+  if(type==="activity") c.title="観光";
+  if(type==="move") c.mode="car";
+  data.cards.push(c);
+  render();
+}
+
+// ===== 編集 =====
+function edit(i){
+  editingIndex=i;
+  const c=data.cards[i];
+
+  editor.style.display="block";
+  title.value=c.title||"";
+  start.value=c.start;
+  end.value=c.end;
+  todos.value=(c.todos||[]).join(",");
+
+  initMap(c);
+}
+
+// ===== 地図 =====
+function initMap(c){
+  if(map) map.remove();
+
+  map=L.map("map").setView([c.lat||35, c.lng||135], 13);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+  if(c.lat){
+    marker=L.marker([c.lat,c.lng]).addTo(map);
+  }
+
+  map.on("click",e=>{
+    const {lat,lng}=e.latlng;
+    if(marker) marker.remove();
+    marker=L.marker([lat,lng]).addTo(map);
+
+    data.cards[editingIndex].lat=lat;
+    data.cards[editingIndex].lng=lng;
+  });
+}
+
+// ===== 保存 =====
+function saveEdit(){
+  const c=data.cards[editingIndex];
+  c.title=title.value;
+  c.start=start.value;
+  c.end=end.value;
+  c.todos=todos.value.split(",");
+
+  editor.style.display="none";
+  render();
+}
+
+// ===== D&D =====
+new Sortable(list,{
+  animation:150,
+  onEnd:e=>{
+    const item=data.cards.splice(e.oldIndex,1)[0];
+    data.cards.splice(e.newIndex,0,item);
+    saveLocal();
+  }
+});
 
 // ===== URL生成 =====
+let url="";
 function generate(){
-  const json=document.getElementById("jsonInput").value;
-  const d=LZString.compressToEncodedURIComponent(json);
-  url=BASE+"?d="+d;
-
-  const out=document.getElementById("out");
+  const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
+  url="https://ntaokshaiyoa-afk.github.io/SimilarBird/?d="+d;
   out.innerText=url;
-
-  // 自動選択（iPhone対策）
-  const range=document.createRange();
-  range.selectNodeContents(out);
-  const sel=window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
 }
 
-// ===== コピー（完全版） =====
+// ===== コピー =====
 function copy(){
-  if(!url) return alert("先に生成");
-
-  if(navigator.clipboard && window.isSecureContext){
-    navigator.clipboard.writeText(url)
-      .then(()=>alert("コピーしました"))
-      .catch(()=>fallbackCopy());
-  }else{
-    fallbackCopy();
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(url);
   }
-}
-
-function fallbackCopy(){
-  const t=document.createElement("textarea");
-  t.value=url;
-  t.style.position="fixed";
-  t.style.top="0";
-  document.body.appendChild(t);
-  t.select();
-
-  try{
-    document.execCommand("copy");
-    alert("コピーしました");
-  }catch{
-    alert("コピー失敗");
-  }
-
-  document.body.removeChild(t);
 }
 
 // ===== QR =====
 function makeQR(){
-  if(!url) return alert("先に生成");
-
-  QRCode.toCanvas(document.getElementById("qr"), url, {
-    width: 200
-  });
+  QRCode.toCanvas(qr,url);
 }
+
+// ===== 初期描画 =====
+render();
 </script>
 
 </body>
