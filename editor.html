@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width">
 
-<!-- ライブラリ -->
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
 
@@ -15,48 +14,21 @@
 body{margin:0;font-family:sans-serif;background:#f5f5f5;}
 
 .top{padding:10px;background:white;position:sticky;top:0;z-index:1000;}
-.dayTabs button{margin:2px;}
 
-.card{
-  background:white;
-  margin:10px;
-  padding:10px;
-  border-radius:10px;
-  cursor:grab;
-}
+.card{background:white;margin:10px;padding:10px;border-radius:10px;}
 
-.modal{
-  display:none;
-  position:fixed;
-  inset:0;
-  background:rgba(0,0,0,0.5);
-}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);}
+.modalInner{background:white;margin:5%;padding:10px;border-radius:10px;}
 
-.modalInner{
-  background:white;
-  margin:5%;
-  padding:10px;
-  border-radius:10px;
-}
-
-#map{height:200px;margin-top:10px;}
-
-.preview{
-  position:fixed;
-  bottom:0;
-  width:100%;
-  height:200px;
-  border-top:2px solid #ccc;
-}
-
-textarea{width:100%;height:60px;}
+#map{height:200px;}
+.preview{position:fixed;bottom:0;width:100%;height:200px;}
 </style>
 </head>
 
 <body>
 
 <div class="top">
-  <div class="dayTabs" id="days"></div>
+  <div id="days"></div>
   <button id="addDay">＋日</button>
   <button id="addBtn">＋カード</button>
   <button id="genBtn">URL生成</button>
@@ -66,21 +38,17 @@ textarea{width:100%;height:60px;}
 
 <textarea id="urlOut"></textarea>
 
-<!-- モーダル -->
 <div id="modal" class="modal">
   <div class="modalInner">
-    <input id="title" placeholder="タイトル"><br>
-    <input id="start" placeholder="09:00">
-    <input id="end" placeholder="10:00"><br>
-
+    <input id="title"><br>
+    <input id="start"><input id="end"><br>
     <select id="mode">
       <option value="walk">徒歩</option>
       <option value="car">車</option>
       <option value="train">電車</option>
     </select>
 
-    <!-- 🔍 検索 -->
-    <input id="search" placeholder="場所検索">
+    <input id="search">
     <div id="results"></div>
 
     <div id="map"></div>
@@ -91,39 +59,58 @@ textarea{width:100%;height:60px;}
   </div>
 </div>
 
-<!-- プレビュー -->
 <iframe id="preview" class="preview"></iframe>
 
 <script>
+// ===== 初期化 =====
+document.addEventListener("DOMContentLoaded",()=>{
+
+// ===== DOM取得 =====
+const daysEl=document.getElementById("days");
+const list=document.getElementById("list");
+
+const addBtn=document.getElementById("addBtn");
+const addDayBtn=document.getElementById("addDay");
+const genBtn=document.getElementById("genBtn");
+
+const modal=document.getElementById("modal");
+const title=document.getElementById("title");
+const start=document.getElementById("start");
+const end=document.getElementById("end");
+const mode=document.getElementById("mode");
+
+const search=document.getElementById("search");
+const results=document.getElementById("results");
+
+const saveBtn=document.getElementById("saveBtn");
+const delBtn=document.getElementById("delBtn");
+const closeBtn=document.getElementById("closeBtn");
+
+const preview=document.getElementById("preview");
+
 // ===== 状態 =====
-let data=loadLocal();
+let data=JSON.parse(localStorage.getItem("timeline")) || {d:[{dt:"1日目",c:[]}]};
 let di=0;
 let editIndex=null;
 let map, marker;
 
 // ===== 保存 =====
-function saveLocal(){
+function save(){
   localStorage.setItem("timeline",JSON.stringify(data));
-}
-
-// ===== 読込 =====
-function loadLocal(){
-  return JSON.parse(localStorage.getItem("timeline")) 
-    || {d:[{dt:"1日目",c:[]}]};
 }
 
 // ===== 日タブ =====
 function renderDays(){
-  days.innerHTML="";
+  daysEl.innerHTML="";
   data.d.forEach((d,i)=>{
     const b=document.createElement("button");
     b.textContent=d.dt;
     b.onclick=()=>{di=i;render();}
-    days.appendChild(b);
+    daysEl.appendChild(b);
   });
 }
 
-// ===== カード =====
+// ===== 描画 =====
 function render(){
   renderDays();
   list.innerHTML="";
@@ -140,25 +127,31 @@ function render(){
     onEnd:e=>{
       const item=data.d[di].c.splice(e.oldIndex,1)[0];
       data.d[di].c.splice(e.newIndex,0,item);
-      saveLocal();
-      updatePreview();
+      save();
     }
   });
+
+  updatePreview();
 }
 
-// ===== 日追加 =====
-addDay.onclick=()=>{
-  data.d.push({dt:`${data.d.length+1}日目`,c:[]});
-  saveLocal();
+// ===== カード追加（修正ポイント）=====
+addBtn.addEventListener("click",()=>{
+  data.d[di].c.push({
+    s:"09:00",
+    e:"10:00",
+    tt:"新規",
+    m:"walk"
+  });
+  save();
   render();
-};
+});
 
-// ===== カード追加 =====
-addBtn.onclick=()=>{
-  data.d[di].c.push({s:"09:00",e:"10:00",tt:"新規",m:"walk"});
-  saveLocal();
+// ===== 日追加 =====
+addDayBtn.addEventListener("click",()=>{
+  data.d.push({dt:`${data.d.length+1}日目`,c:[]});
+  save();
   render();
-};
+});
 
 // ===== 編集 =====
 function openEditor(i){
@@ -183,10 +176,6 @@ function initMap(c){
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-  if(c.la){
-    marker=L.marker([c.la,c.lo]).addTo(map);
-  }
-
   map.on("click",e=>{
     if(marker) marker.remove();
     marker=L.marker(e.latlng).addTo(map);
@@ -198,33 +187,27 @@ function initMap(c){
 }
 
 // ===== 検索 =====
-search.oninput=async ()=>{
-  const q=search.value;
-  if(q.length<2) return;
+search.addEventListener("input", async ()=>{
+  if(search.value.length<2) return;
 
-  const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}`);
+  const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${search.value}`);
   const json=await res.json();
 
   results.innerHTML="";
   json.slice(0,5).forEach(r=>{
     const div=document.createElement("div");
     div.textContent=r.display_name;
+
     div.onclick=()=>{
       map.setView([r.lat,r.lon],14);
-
-      if(marker) marker.remove();
-      marker=L.marker([r.lat,r.lon]).addTo(map);
-
-      const card=data.d[di].c[editIndex];
-      card.la=+r.lat;
-      card.lo=+r.lon;
     };
+
     results.appendChild(div);
   });
-};
+});
 
 // ===== 保存 =====
-saveBtn.onclick=()=>{
+saveBtn.addEventListener("click",()=>{
   const c=data.d[di].c[editIndex];
   c.tt=title.value;
   c.s=start.value;
@@ -232,30 +215,28 @@ saveBtn.onclick=()=>{
   c.m=mode.value;
 
   modal.style.display="none";
-
-  saveLocal();
+  save();
   render();
-  updatePreview();
-};
+});
 
 // ===== 削除 =====
-delBtn.onclick=()=>{
+delBtn.addEventListener("click",()=>{
   data.d[di].c.splice(editIndex,1);
   modal.style.display="none";
-  saveLocal();
+  save();
   render();
-  updatePreview();
-};
+});
 
 // ===== 閉じる =====
-closeBtn.onclick=()=>modal.style.display="none";
+closeBtn.addEventListener("click",()=>{
+  modal.style.display="none";
+});
 
 // ===== URL =====
-genBtn.onclick=()=>{
+genBtn.addEventListener("click",()=>{
   const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
-  const url=location.origin+location.pathname.replace("editor","index")+"?d="+d;
-  urlOut.value=url;
-};
+  urlOut.value=location.origin+location.pathname.replace("editor","index")+"?d="+d;
+});
 
 // ===== プレビュー =====
 function updatePreview(){
@@ -263,9 +244,10 @@ function updatePreview(){
   preview.src=location.origin+location.pathname.replace("editor","index")+"?d="+d;
 }
 
-// ===== 初期 =====
+// 初期
 render();
-updatePreview();
+
+});
 </script>
 
 </body>
