@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -15,16 +16,13 @@
 body{font-family:sans-serif;margin:0;background:#f5f5f5;}
 .top{position:sticky;top:0;background:white;padding:10px;z-index:10;}
 
-.tabs button{margin-right:5px;}
-
 .card{
   background:white;margin:10px;padding:12px;
   border-radius:12px;
 }
 
-.card b{font-size:16px;}
-
 .small{color:#666;font-size:12px;}
+.md{background:#fafafa;padding:6px;margin-top:6px;border-radius:6px;}
 
 #editor{
   position:fixed;top:5%;left:5%;right:5%;
@@ -34,33 +32,36 @@ body{font-family:sans-serif;margin:0;background:#f5f5f5;}
 
 #map{height:200px;margin-top:10px;}
 
-#out{
-  background:#eee;padding:10px;
-  word-break:break-all;
-  user-select:all;
-}
+textarea{width:100%;height:80px;}
+button{margin:4px;}
 </style>
 </head>
 
 <body>
 
 <div class="top">
-  <div id="tabs" class="tabs"></div>
+  <button onclick="newData()">🆕 新規</button>
   <button onclick="addDay()">＋日</button>
   <button onclick="addCard('a')">＋観光</button>
   <button onclick="addCard('m')">＋移動</button>
+
   <button onclick="generate()">URL</button>
   <button onclick="copy()">コピー</button>
   <button onclick="makeQR()">QR</button>
+
+  <input id="loadUrl" placeholder="URL貼り付け">
+  <button onclick="loadFromURL()">読込</button>
 </div>
 
+<div id="tabs"></div>
 <div id="list"></div>
 
 <div id="editor">
   <h3>編集</h3>
+
   <input id="title" placeholder="タイトル"><br>
-  <input id="start" placeholder="08:30">
-  <input id="end" placeholder="10:00"><br>
+  <input id="start">
+  <input id="end"><br>
 
   <select id="mode">
     <option value="car">🚗 車</option>
@@ -68,12 +69,12 @@ body{font-family:sans-serif;margin:0;background:#f5f5f5;}
     <option value="walk">🚶 徒歩</option>
   </select>
 
-  <input id="search" placeholder="場所検索">
-  <button onclick="searchPlace()">検索</button>
+  <textarea id="comment" placeholder="Markdownコメント"></textarea>
 
   <div id="map"></div>
 
   <button onclick="saveEdit()">保存</button>
+  <button onclick="deleteCard()">削除</button>
 </div>
 
 <div id="out"></div>
@@ -83,10 +84,20 @@ body{font-family:sans-serif;margin:0;background:#f5f5f5;}
 const tabs=document.getElementById("tabs");
 const list=document.getElementById("list");
 
-// ===== データ =====
-let data=JSON.parse(localStorage.getItem("t")||'{"d":[{"dt":"1日目","c":[]}]}');
+let data=loadSafe();
 let di=0, ei=null;
-let map, marker;
+let map,marker;
+
+// ===== 安全ロード =====
+function loadSafe(){
+  try{
+    const d=JSON.parse(localStorage.getItem("t"));
+    if(!d||!d.d) throw 0;
+    return d;
+  }catch{
+    return {d:[{dt:"1日目",c:[]}]};
+  }
+}
 
 // ===== アイコン =====
 function icon(c){
@@ -94,18 +105,6 @@ function icon(c){
   if(c.m==="car") return "🚗";
   if(c.m==="train") return "🚃";
   if(c.m==="walk") return "🚶";
-  return "📍";
-}
-
-// ===== タブ =====
-function renderTabs(){
-  tabs.innerHTML="";
-  data.d.forEach((d,i)=>{
-    const b=document.createElement("button");
-    b.innerText=d.dt;
-    b.onclick=()=>{di=i;render();}
-    tabs.appendChild(b);
-  });
 }
 
 // ===== 描画 =====
@@ -121,10 +120,9 @@ function render(){
 
     el.innerHTML=`
       <b>${icon(c)} ${c.s}-${c.e}</b><br>
-      ${c.tt||""}<br>
-      <div class="small">
-        ${c.la?`📍 ${c.la},${c.lo}`:"位置未設定"}
-      </div>
+      ${c.tt||""}
+      <div class="small">${c.la?c.la+","+c.lo:"位置未設定"}</div>
+      ${c.cm?`<div class="md">${marked.parse(c.cm)}</div>`:""}
     `;
 
     el.onclick=()=>edit(i);
@@ -135,6 +133,7 @@ function render(){
   new Sortable(list,{
     animation:150,
     onEnd:e=>{
+      const cards=data.d[di].c;
       const item=cards.splice(e.oldIndex,1)[0];
       cards.splice(e.newIndex,0,item);
       save();
@@ -144,9 +143,28 @@ function render(){
   save();
 }
 
+// ===== タブ =====
+function renderTabs(){
+  tabs.innerHTML="";
+  data.d.forEach((d,i)=>{
+    const b=document.createElement("button");
+    b.innerText=d.dt;
+    b.onclick=()=>{di=i;render();}
+    tabs.appendChild(b);
+  });
+}
+
 // ===== 保存 =====
 function save(){
   localStorage.setItem("t",JSON.stringify(data));
+}
+
+// ===== 新規 =====
+function newData(){
+  if(!confirm("全部消えます。OK?")) return;
+  data={d:[{dt:"1日目",c:[]}]};
+  di=0;
+  render();
 }
 
 // ===== 追加 =====
@@ -174,6 +192,7 @@ function edit(i){
   start.value=c.s;
   end.value=c.e;
   mode.value=c.m||"car";
+  comment.value=c.cm||"";
 
   initMap(c);
 }
@@ -183,6 +202,7 @@ function initMap(c){
   if(map) map.remove();
 
   map=L.map("map").setView([c.la||35,c.lo||135],13);
+
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
   if(c.la){
@@ -202,29 +222,6 @@ function initMap(c){
   });
 }
 
-// ===== 検索 =====
-async function searchPlace(){
-  const q=document.getElementById("search").value;
-  const url=`https://nominatim.openstreetmap.org/search?q=${q}&format=json`;
-
-  const res=await fetch(url);
-  const json=await res.json();
-
-  if(json[0]){
-    const lat=parseFloat(json[0].lat);
-    const lng=parseFloat(json[0].lon);
-
-    map.setView([lat,lng],14);
-
-    if(marker) marker.remove();
-    marker=L.marker([lat,lng]).addTo(map);
-
-    const c=data.d[di].c[ei];
-    c.la=lat;
-    c.lo=lng;
-  }
-}
-
 // ===== 保存 =====
 function saveEdit(){
   const c=data.d[di].c[ei];
@@ -233,17 +230,39 @@ function saveEdit(){
   c.s=start.value;
   c.e=end.value;
   c.m=mode.value;
+  c.cm=comment.value;
 
   editor.style.display="none";
   render();
 }
 
-// ===== URL =====
+// ===== 削除 =====
+function deleteCard(){
+  if(!confirm("削除しますか？")) return;
+  data.d[di].c.splice(ei,1);
+  editor.style.display="none";
+  render();
+}
+
+// ===== URL生成 =====
 let url="";
 function generate(){
   const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
   url="https://ntaokshaiyoa-afk.github.io/SimilarBird/?d="+d;
   out.innerText=url;
+}
+
+// ===== URL読込 =====
+function loadFromURL(){
+  try{
+    const u=document.getElementById("loadUrl").value;
+    const d=new URL(u).searchParams.get("d");
+    data=JSON.parse(LZString.decompressFromEncodedURIComponent(d));
+    di=0;
+    render();
+  }catch{
+    alert("読み込み失敗");
+  }
 }
 
 // ===== コピー =====
@@ -259,7 +278,7 @@ function copy(){
 
 // ===== QR =====
 function makeQR(){
-  QRCode.toCanvas(document.getElementById("qr"),url);
+  QRCode.toCanvas(document.querySelector("canvas"),url);
 }
 
 render();
