@@ -6,7 +6,7 @@
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 <style>
 body{font-family:sans-serif;padding:20px;}
-textarea{width:100%;height:280px;}
+textarea{width:100%;height:320px;}
 button{margin-top:10px;padding:10px;}
 #out{margin-top:10px;word-break:break-all;}
 </style>
@@ -35,17 +35,15 @@ button{margin-top:10px;padding:10px;}
       "duration": "30分",
       "lat": 34.48,
       "lng": 136.84,
-      "route": [
-        [34.34,136.83],
-        [34.40,136.82],
-        [34.48,136.84]
-      ]
+      "route": [[34.34,136.83],[34.48,136.84]]
     },
     {
       "type": "move",
       "mode": "train",
       "start": "10:30",
       "end": "11:30",
+      "lat": 34.48,
+      "lng": 136.84,
       "steps": [
         {"line":"近鉄志摩線","from":"鵜方","to":"鳥羽","depart":"10:35","arrive":"11:10"}
       ]
@@ -81,7 +79,8 @@ function gen(){
 }
 
 function copy(){
-  navigator.clipboard.writeText(url).then(()=>alert("コピーOK"));
+  navigator.clipboard.writeText(url);
+  alert("コピーOK");
 }
 </script>
 
