@@ -21,7 +21,9 @@ body{margin:0;font-family:sans-serif;background:#f5f5f5;}
 .modalInner{background:white;margin:5%;padding:10px;border-radius:10px;}
 
 #map{height:200px;}
-.preview{position:fixed;bottom:0;width:100%;height:200px;}
+.preview{position:fixed;bottom:0;width:100%;height:180px;}
+
+textarea{width:100%;height:60px;}
 </style>
 </head>
 
@@ -42,13 +44,14 @@ body{margin:0;font-family:sans-serif;background:#f5f5f5;}
   <div class="modalInner">
     <input id="title"><br>
     <input id="start"><input id="end"><br>
+
     <select id="mode">
       <option value="walk">徒歩</option>
       <option value="car">車</option>
       <option value="train">電車</option>
     </select>
 
-    <input id="search">
+    <input id="search" placeholder="場所検索">
     <div id="results"></div>
 
     <div id="map"></div>
@@ -62,10 +65,7 @@ body{margin:0;font-family:sans-serif;background:#f5f5f5;}
 <iframe id="preview" class="preview"></iframe>
 
 <script>
-// ===== 初期化 =====
-document.addEventListener("DOMContentLoaded",()=>{
-
-// ===== DOM取得 =====
+// ===== DOM =====
 const daysEl=document.getElementById("days");
 const list=document.getElementById("list");
 
@@ -87,19 +87,39 @@ const delBtn=document.getElementById("delBtn");
 const closeBtn=document.getElementById("closeBtn");
 
 const preview=document.getElementById("preview");
+const urlOut=document.getElementById("urlOut");
 
 // ===== 状態 =====
-let data=JSON.parse(localStorage.getItem("timeline")) || {d:[{dt:"1日目",c:[]}]};
+let data=load();
 let di=0;
 let editIndex=null;
 let map, marker;
+
+// ===== 軽量化（重要）=====
+function compact(d){
+  return d.d.map(day=>({
+    dt:day.dt,
+    c:day.c.map(x=>[
+      x.s,x.e,x.tt,x.m,x.la||0,x.lo||0
+    ])
+  }));
+}
 
 // ===== 保存 =====
 function save(){
   localStorage.setItem("timeline",JSON.stringify(data));
 }
 
-// ===== 日タブ =====
+function load(){
+  try{
+    return JSON.parse(localStorage.getItem("timeline"))
+      || {d:[{dt:"1日目",c:[]}]};
+  }catch{
+    return {d:[{dt:"1日目",c:[]}]};
+  }
+}
+
+// ===== 日 =====
 function renderDays(){
   daysEl.innerHTML="";
   data.d.forEach((d,i)=>{
@@ -134,24 +154,18 @@ function render(){
   updatePreview();
 }
 
-// ===== カード追加（修正ポイント）=====
-addBtn.addEventListener("click",()=>{
-  data.d[di].c.push({
-    s:"09:00",
-    e:"10:00",
-    tt:"新規",
-    m:"walk"
-  });
+// ===== ボタン（確実に動く）=====
+addBtn.onclick=()=>{
+  data.d[di].c.push({s:"09:00",e:"10:00",tt:"新規",m:"walk"});
   save();
   render();
-});
+};
 
-// ===== 日追加 =====
-addDayBtn.addEventListener("click",()=>{
+addDayBtn.onclick=()=>{
   data.d.push({dt:`${data.d.length+1}日目`,c:[]});
   save();
   render();
-});
+};
 
 // ===== 編集 =====
 function openEditor(i){
@@ -165,7 +179,7 @@ function openEditor(i){
   end.value=c.e;
   mode.value=c.m||"walk";
 
-  initMap(c);
+  setTimeout(()=>initMap(c),50);
 }
 
 // ===== 地図 =====
@@ -187,7 +201,7 @@ function initMap(c){
 }
 
 // ===== 検索 =====
-search.addEventListener("input", async ()=>{
+search.oninput=async ()=>{
   if(search.value.length<2) return;
 
   const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${search.value}`);
@@ -204,10 +218,10 @@ search.addEventListener("input", async ()=>{
 
     results.appendChild(div);
   });
-});
+};
 
 // ===== 保存 =====
-saveBtn.addEventListener("click",()=>{
+saveBtn.onclick=()=>{
   const c=data.d[di].c[editIndex];
   c.tt=title.value;
   c.s=start.value;
@@ -217,37 +231,37 @@ saveBtn.addEventListener("click",()=>{
   modal.style.display="none";
   save();
   render();
-});
+};
 
-// ===== 削除 =====
-delBtn.addEventListener("click",()=>{
+delBtn.onclick=()=>{
   data.d[di].c.splice(editIndex,1);
   modal.style.display="none";
   save();
   render();
-});
+};
 
-// ===== 閉じる =====
-closeBtn.addEventListener("click",()=>{
-  modal.style.display="none";
-});
+closeBtn.onclick=()=>modal.style.display="none";
 
-// ===== URL =====
-genBtn.addEventListener("click",()=>{
-  const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
-  urlOut.value=location.origin+location.pathname.replace("editor","index")+"?d="+d;
-});
+// ===== URL（軽量化済）=====
+genBtn.onclick=()=>{
+  const compactData=compact(data);
+  const d=LZString.compressToEncodedURIComponent(JSON.stringify(compactData));
+
+  urlOut.value=location.origin+
+    location.pathname.replace("editor","index")+
+    "?d="+d;
+};
 
 // ===== プレビュー =====
 function updatePreview(){
-  const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
-  preview.src=location.origin+location.pathname.replace("editor","index")+"?d="+d;
+  const d=LZString.compressToEncodedURIComponent(JSON.stringify(compact(data)));
+  preview.src=location.origin+
+    location.pathname.replace("editor","index")+
+    "?d="+d;
 }
 
 // 初期
 render();
-
-});
 </script>
 
 </body>
