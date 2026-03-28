@@ -1,15 +1,35 @@
-import {nearest} from "./core.js";
+const list=document.getElementById("list");
 
 let data={d:[{dt:"1日目",c:[]}]};
-let stations=[];
 
-fetch("./stations.json").then(r=>r.json()).then(s=>stations=s);
+// ===== 追加 =====
+window.addCard=function(){
+  data.d[0].c.push({
+    s:"09:00",
+    e:"10:00",
+    tt:"新規",
+    m:"walk"
+  });
+  render();
+}
 
-// 地図クリック
-map.on("click",e=>{
-  const st=nearest(stations,e.latlng.lat,e.latlng.lng);
+// ===== 描画 =====
+function render(){
+  list.innerHTML="";
 
-  current.la=st.lat;
-  current.lo=st.lng;
-  current.station=st.name;
-});
+  data.d[0].c.forEach(c=>{
+    const el=document.createElement("div");
+    el.className="card";
+    el.innerText=`${c.s} ${c.tt}`;
+    list.appendChild(el);
+  });
+}
+
+// ===== URL =====
+window.generate=function(){
+  const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
+  const url=location.origin+"/SimilarBird/?d="+d;
+  alert(url);
+}
+
+render();
