@@ -1,3 +1,28 @@
-<script type="module" src="./js/editor.js"></script>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
 <link rel="stylesheet" href="./css/style.css">
 <link rel="stylesheet" href="./css/editor.css">
+</head>
+
+<body>
+
+<div class="top">
+  <button onclick="addCard()">＋カード</button>
+  <button onclick="generate()">URL生成</button>
+</div>
+
+<div id="list"></div>
+
+<script type="module" src="./js/editor.js"></script>
+
+</body>
+</html>
