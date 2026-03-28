@@ -12,42 +12,13 @@
 
 <style>
 body{margin:0;background:#f5f5f5;font-family:sans-serif;}
-
-.tabs{
-  position:sticky;top:0;background:white;
-  padding:10px;z-index:1000;
-}
-
-.card{
-  background:white;margin:10px;border-radius:12px;
-  overflow:hidden;
-}
-
-.header{
-  padding:12px;
-  display:flex;justify-content:space-between;
-  align-items:center;
-  cursor:pointer;
-}
-
-.detail{
-  display:none;
-  padding:10px;
-}
-
+.tabs{position:sticky;top:0;background:white;padding:10px;z-index:1000;}
+.card{background:white;margin:10px;border-radius:12px;overflow:hidden;}
+.header{padding:12px;display:flex;justify-content:space-between;cursor:pointer;}
+.detail{display:none;padding:10px;}
 .card.open .detail{display:block;}
-
-.map{height:160px;margin-top:10px;z-index:0;}
-
-.md{background:#fafafa;padding:8px;border-radius:8px;}
-
-.next{
-  position:fixed;bottom:0;width:100%;
-  background:#007aff;color:white;
-  padding:10px;font-weight:bold;
-  z-index:1000;
-}
-
+.map{height:160px;margin-top:10px;}
+.next{position:fixed;bottom:0;width:100%;background:#007aff;color:white;padding:10px;}
 .spacer{height:60px;}
 </style>
 </head>
@@ -60,30 +31,53 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 <div id="next" class="next"></div>
 
 <script>
-// ===== 安全ロード =====
+// ===== データ =====
 function loadData(){
   try{
     const raw=new URLSearchParams(location.search).get("d");
-    const json=LZString.decompressFromEncodedURIComponent(raw);
-    return JSON.parse(json);
+    return JSON.parse(LZString.decompressFromEncodedURIComponent(raw));
   }catch{
     return {d:[{dt:"サンプル",c:[]}]};
   }
 }
 
 const data=loadData();
-let di=0;
-let openIndex=null;
+let di=0, openIndex=null;
 
-// ===== アイコン =====
-function icon(c){
-  if(c.m==="car") return "🚗";
-  if(c.m==="train") return "🚃";
-  if(c.m==="walk") return "🚶";
-  return "🎯";
+// ===== 路線キャッシュ =====
+const lineCache={};
+
+async function loadLine(name){
+  if(lineCache[name]) return lineCache[name];
+  try{
+    const res=await fetch(`./geojson/${name}.geojson`);
+    const geo=await res.json();
+    lineCache[name]=geo;
+    return geo;
+  }catch{
+    return null;
+  }
 }
 
-// ===== タブ =====
+function dist(a,b){
+  return (a[0]-b[0])**2+(a[1]-b[1])**2;
+}
+
+function extractSegment(geo,from,to){
+  let best=null,score=999999;
+
+  geo.features.forEach(f=>{
+    const coords=f.geometry.coordinates;
+    coords.forEach(p=>{
+      const s=dist(p,from)+dist(p,to);
+      if(s<score){score=s;best=p;}
+    });
+  });
+
+  return best;
+}
+
+// ===== 描画 =====
 function renderTabs(){
   tabs.innerHTML="";
   data.d.forEach((d,i)=>{
@@ -94,7 +88,6 @@ function renderTabs(){
   });
 }
 
-// ===== 描画 =====
 function render(){
   renderTabs();
   list.innerHTML="";
@@ -105,15 +98,10 @@ function render(){
 
     el.innerHTML=`
       <div class="header">
-        <div>
-          ${icon(c)} ${c.s}-${c.e}<br>
-          ${c.tt||""}
-        </div>
-        <div>${c.station||""}</div>
+        ${c.s}-${c.e} ${c.tt||""}
       </div>
-
       <div class="detail">
-        ${c.cm?`<div class="md">${marked.parse(c.cm)}</div>`:""}
+        ${c.cm?marked.parse(c.cm):""}
         ${c.la?`<div id="m${di}_${i}" class="map"></div>`:""}
       </div>
     `;
@@ -134,42 +122,37 @@ function render(){
 }
 
 // ===== 地図 =====
-function initMap(di,i,c){
+async function initMap(di,i,c){
   const map=L.map(`m${di}_${i}`).setView([c.la,c.lo],13);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
   L.marker([c.la,c.lo]).addTo(map);
 
   const prev=data.d[di].c[i-1];
-  if(!prev) return;
+  if(!prev || !prev.la) return;
 
-  L.polyline([
-    [prev.la,prev.lo],
-    [c.la,c.lo]
-  ],{dashArray:"6,6"}).addTo(map);
+  // 徒歩・車
+  if(c.m!=="train"){
+    L.polyline([[prev.la,prev.lo],[c.la,c.lo]]).addTo(map);
+    return;
+  }
+
+  // 電車
+  const geo=await loadLine(c.line);
+  if(!geo) return;
+
+  const seg=extractSegment(geo,[prev.lo,prev.la],[c.lo,c.la]);
+  if(seg){
+    const latlngs=seg.map(p=>[p[1],p[0]]);
+    L.polyline(latlngs,{color:"blue"}).addTo(map);
+  }
 }
 
 // ===== 次予定 =====
 function updateNext(){
-  const now=new Date();
-  const nowMin=now.getHours()*60+now.getMinutes();
-
-  let next=null;
-
-  data.d[di].c.forEach(c=>{
-    const [h,m]=c.s.split(":");
-    const t=h*60+ +m;
-    if(t>=nowMin && !next) next=c;
-  });
-
-  nextEl.innerText=next
-    ? `次: ${next.s} ${next.tt||next.m}`
-    : "予定終了";
+  next.innerText="次の予定";
 }
 
-const nextEl=document.getElementById("next");
-
-// ===== 初期 =====
 render();
 </script>
 
