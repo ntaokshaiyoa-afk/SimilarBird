@@ -1,5 +1,26 @@
 [
-  {"name":"鳥羽","lat":34.483,"lng":136.843,"lines":["kintetsu"]},
-  {"name":"伊勢市","lat":34.487,"lng":136.709,"lines":["jr","kintetsu"]},
-  {"name":"名古屋","lat":35.170,"lng":136.881,"lines":["jr","kintetsu"]}
+  {"name":"東松戸","lat":35.7705,"lng":139.9397,"lines":["jr_musashino","hs_hokuso"]},
+  {"name":"新松戸","lat":35.8255,"lng":139.9210,"lines":["jr_musashino","jr_joban"]},
+  {"name":"南流山","lat":35.8392,"lng":139.9033,"lines":["jr_musashino","tx_tsukuba"]},
+  {"name":"西船橋","lat":35.7074,"lng":139.9596,"lines":["jr_musashino","jr_sobu","tr_tozai"]},
+  {"name":"市川大野","lat":35.7612,"lng":139.9530,"lines":["jr_musashino"]},
+  {"name":"船橋法典","lat":35.7307,"lng":139.9645,"lines":["jr_musashino"]},
+  {"name":"秋山","lat":35.7747,"lng":139.9380,"lines":["hs_hokuso"]},
+  {"name":"松飛台","lat":35.7805,"lng":139.9502,"lines":["hs_hokuso"]},
+  {"name":"北国分","lat":35.7546,"lng":139.9188,"lines":["hs_hokuso"]},
+
+  {"name":"立川","lat":35.6983,"lng":139.4130,"lines":["jr_chuo","jr_nambu","jr_ome"]},
+  {"name":"西国立","lat":35.6931,"lng":139.4227,"lines":["jr_nambu"]},
+  {"name":"矢川","lat":35.6850,"lng":139.4315,"lines":["jr_nambu"]},
+  {"name":"谷保","lat":35.6725,"lng":139.4460,"lines":["jr_nambu"]},
+  {"name":"西立川","lat":35.7062,"lng":139.3943,"lines":["jr_ome"]},
+  {"name":"東中神","lat":35.7068,"lng":139.3778,"lines":["jr_ome"]},
+  {"name":"中神","lat":35.7085,"lng":139.3605,"lines":["jr_ome"]},
+  {"name":"日野","lat":35.6795,"lng":139.3946,"lines":["jr_chuo"]},
+  {"name":"豊田","lat":35.6595,"lng":139.3813,"lines":["jr_chuo"]},
+  {"name":"国立","lat":35.6996,"lng":139.4463,"lines":["jr_chuo"]},
+
+  {"name":"東京","lat":35.6812,"lng":139.7671,"lines":["jr_yamanote","jr_chuo","jr_tokaido"]},
+  {"name":"秋葉原","lat":35.6987,"lng":139.7730,"lines":["jr_yamanote","jr_keihin","jr_chuo"]},
+  {"name":"新宿","lat":35.6900,"lng":139.7000,"lines":["jr_yamanote","jr_chuo","jr_sobu"]}
 ]
