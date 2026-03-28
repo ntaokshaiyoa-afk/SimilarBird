@@ -5,24 +5,13 @@
 <meta name="viewport" content="width=device-width">
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
-<script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
-
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <style>
 body{margin:0;font-family:sans-serif;background:#f5f5f5;}
-
-.top{padding:10px;background:white;position:sticky;top:0;z-index:1000;}
-
+.top{padding:10px;background:white;position:sticky;top:0;}
 .card{background:white;margin:10px;padding:10px;border-radius:10px;}
-
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);}
-.modalInner{background:white;margin:5%;padding:10px;border-radius:10px;}
-
-#map{height:200px;}
-.preview{position:fixed;bottom:0;width:100%;height:180px;}
-
+.modalInner{background:white;margin:10%;padding:10px;}
 textarea{width:100%;height:60px;}
 </style>
 </head>
@@ -30,12 +19,12 @@ textarea{width:100%;height:60px;}
 <body>
 
 <div class="top">
-  <div id="days"></div>
   <button id="addDay">＋日</button>
   <button id="addBtn">＋カード</button>
   <button id="genBtn">URL生成</button>
 </div>
 
+<div id="days"></div>
 <div id="list"></div>
 
 <textarea id="urlOut"></textarea>
@@ -45,65 +34,41 @@ textarea{width:100%;height:60px;}
     <input id="title"><br>
     <input id="start"><input id="end"><br>
 
-    <select id="mode">
-      <option value="walk">徒歩</option>
-      <option value="car">車</option>
-      <option value="train">電車</option>
-    </select>
-
-    <input id="search" placeholder="場所検索">
-    <div id="results"></div>
-
-    <div id="map"></div>
-
     <button id="saveBtn">保存</button>
     <button id="delBtn">削除</button>
     <button id="closeBtn">閉じる</button>
   </div>
 </div>
 
-<iframe id="preview" class="preview"></iframe>
-
 <script>
-// ===== DOM =====
-const daysEl=document.getElementById("days");
-const list=document.getElementById("list");
+// ===== 安全ラッパ =====
+function safe(fn){
+  try{fn();}catch(e){console.error(e);}
+}
 
-const addBtn=document.getElementById("addBtn");
+// ===== DOM =====
 const addDayBtn=document.getElementById("addDay");
+const addBtn=document.getElementById("addBtn");
 const genBtn=document.getElementById("genBtn");
 
+const daysEl=document.getElementById("days");
+const list=document.getElementById("list");
 const modal=document.getElementById("modal");
+
 const title=document.getElementById("title");
 const start=document.getElementById("start");
 const end=document.getElementById("end");
-const mode=document.getElementById("mode");
-
-const search=document.getElementById("search");
-const results=document.getElementById("results");
 
 const saveBtn=document.getElementById("saveBtn");
 const delBtn=document.getElementById("delBtn");
 const closeBtn=document.getElementById("closeBtn");
 
-const preview=document.getElementById("preview");
 const urlOut=document.getElementById("urlOut");
 
 // ===== 状態 =====
 let data=load();
 let di=0;
 let editIndex=null;
-let map, marker;
-
-// ===== 軽量化（重要）=====
-function compact(d){
-  return d.d.map(day=>({
-    dt:day.dt,
-    c:day.c.map(x=>[
-      x.s,x.e,x.tt,x.m,x.la||0,x.lo||0
-    ])
-  }));
-}
 
 // ===== 保存 =====
 function save(){
@@ -119,7 +84,7 @@ function load(){
   }
 }
 
-// ===== 日 =====
+// ===== 日描画 =====
 function renderDays(){
   daysEl.innerHTML="";
   data.d.forEach((d,i)=>{
@@ -130,41 +95,40 @@ function renderDays(){
   });
 }
 
-// ===== 描画 =====
+// ===== カード描画 =====
 function render(){
-  renderDays();
-  list.innerHTML="";
+  safe(()=>{
+    renderDays();
+    list.innerHTML="";
 
-  data.d[di].c.forEach((c,i)=>{
-    const el=document.createElement("div");
-    el.className="card";
-    el.textContent=`${c.s} ${c.tt}`;
-    el.onclick=()=>openEditor(i);
-    list.appendChild(el);
+    data.d[di].c.forEach((c,i)=>{
+      const el=document.createElement("div");
+      el.className="card";
+      el.textContent=`${c.s} ${c.tt}`;
+
+      el.onclick=()=>openEditor(i);
+
+      list.appendChild(el);
+    });
   });
-
-  new Sortable(list,{
-    onEnd:e=>{
-      const item=data.d[di].c.splice(e.oldIndex,1)[0];
-      data.d[di].c.splice(e.newIndex,0,item);
-      save();
-    }
-  });
-
-  updatePreview();
 }
 
-// ===== ボタン（確実に動く）=====
-addBtn.onclick=()=>{
-  data.d[di].c.push({s:"09:00",e:"10:00",tt:"新規",m:"walk"});
-  save();
-  render();
-};
-
+// ===== ボタン =====
 addDayBtn.onclick=()=>{
   data.d.push({dt:`${data.d.length+1}日目`,c:[]});
   save();
   render();
+};
+
+addBtn.onclick=()=>{
+  data.d[di].c.push({s:"09:00",e:"10:00",tt:"新規"});
+  save();
+  render();
+};
+
+genBtn.onclick=()=>{
+  const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
+  urlOut.value=location.href.split("?")[0].replace("editor","index")+"?d="+d;
 };
 
 // ===== 編集 =====
@@ -177,58 +141,17 @@ function openEditor(i){
   title.value=c.tt||"";
   start.value=c.s;
   end.value=c.e;
-  mode.value=c.m||"walk";
-
-  setTimeout(()=>initMap(c),50);
 }
 
-// ===== 地図 =====
-function initMap(c){
-  if(map){map.remove();}
-
-  map=L.map("map").setView([c.la||35,c.lo||139],13);
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-  map.on("click",e=>{
-    if(marker) marker.remove();
-    marker=L.marker(e.latlng).addTo(map);
-
-    const card=data.d[di].c[editIndex];
-    card.la=e.latlng.lat;
-    card.lo=e.latlng.lng;
-  });
-}
-
-// ===== 検索 =====
-search.oninput=async ()=>{
-  if(search.value.length<2) return;
-
-  const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${search.value}`);
-  const json=await res.json();
-
-  results.innerHTML="";
-  json.slice(0,5).forEach(r=>{
-    const div=document.createElement("div");
-    div.textContent=r.display_name;
-
-    div.onclick=()=>{
-      map.setView([r.lat,r.lon],14);
-    };
-
-    results.appendChild(div);
-  });
-};
-
-// ===== 保存 =====
 saveBtn.onclick=()=>{
   const c=data.d[di].c[editIndex];
+
   c.tt=title.value;
   c.s=start.value;
   c.e=end.value;
-  c.m=mode.value;
 
   modal.style.display="none";
+
   save();
   render();
 };
@@ -240,27 +163,11 @@ delBtn.onclick=()=>{
   render();
 };
 
-closeBtn.onclick=()=>modal.style.display="none";
-
-// ===== URL（軽量化済）=====
-genBtn.onclick=()=>{
-  const compactData=compact(data);
-  const d=LZString.compressToEncodedURIComponent(JSON.stringify(compactData));
-
-  urlOut.value=location.origin+
-    location.pathname.replace("editor","index")+
-    "?d="+d;
+closeBtn.onclick=()=>{
+  modal.style.display="none";
 };
 
-// ===== プレビュー =====
-function updatePreview(){
-  const d=LZString.compressToEncodedURIComponent(JSON.stringify(compact(data)));
-  preview.src=location.origin+
-    location.pathname.replace("editor","index")+
-    "?d="+d;
-}
-
-// 初期
+// ===== 初期 =====
 render();
 </script>
 
