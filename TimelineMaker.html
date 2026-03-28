@@ -1,287 +1,36 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
-<script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-<style>
-body{font-family:sans-serif;margin:0;background:#f5f5f5;}
-.top{position:sticky;top:0;background:white;padding:10px;z-index:10;}
-
-.card{
-  background:white;margin:10px;padding:12px;
-  border-radius:12px;
-}
-
-.small{color:#666;font-size:12px;}
-.md{background:#fafafa;padding:6px;margin-top:6px;border-radius:6px;}
-
-#editor{
-  position:fixed;top:5%;left:5%;right:5%;
-  background:white;padding:10px;border-radius:12px;
-  display:none;z-index:100;
-}
-
-#map{height:200px;margin-top:10px;}
-
-textarea{width:100%;height:80px;}
-button{margin:4px;}
-</style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<style>#map{height:300px}</style>
 </head>
-
 <body>
 
-<div class="top">
-  <button onclick="newData()">🆕 新規</button>
-  <button onclick="addDay()">＋日</button>
-  <button onclick="addCard('a')">＋観光</button>
-  <button onclick="addCard('m')">＋移動</button>
-
-  <button onclick="generate()">URL</button>
-  <button onclick="copy()">コピー</button>
-  <button onclick="makeQR()">QR</button>
-
-  <input id="loadUrl" placeholder="URL貼り付け">
-  <button onclick="loadFromURL()">読込</button>
-</div>
-
-<div id="tabs"></div>
-<div id="list"></div>
-
-<div id="editor">
-  <h3>編集</h3>
-
-  <input id="title" placeholder="タイトル"><br>
-  <input id="start">
-  <input id="end"><br>
-
-  <select id="mode">
-    <option value="car">🚗 車</option>
-    <option value="train">🚃 電車</option>
-    <option value="walk">🚶 徒歩</option>
-  </select>
-
-  <textarea id="comment" placeholder="Markdownコメント"></textarea>
-
-  <div id="map"></div>
-
-  <button onclick="saveEdit()">保存</button>
-  <button onclick="deleteCard()">削除</button>
-</div>
-
-<div id="out"></div>
-<canvas id="qr"></canvas>
+<div id="map"></div>
 
 <script>
-const tabs=document.getElementById("tabs");
-const list=document.getElementById("list");
+let map=L.map("map").setView([34.5,136.8],10);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-let data=loadSafe();
-let di=0, ei=null;
-let map,marker;
+let stations=[];
+fetch("./stations.json").then(r=>r.json()).then(s=>stations=s);
 
-// ===== 安全ロード =====
-function loadSafe(){
-  try{
-    const d=JSON.parse(localStorage.getItem("t"));
-    if(!d||!d.d) throw 0;
-    return d;
-  }catch{
-    return {d:[{dt:"1日目",c:[]}]};
-  }
-}
-
-// ===== アイコン =====
-function icon(c){
-  if(c.t==="a") return "🎯";
-  if(c.m==="car") return "🚗";
-  if(c.m==="train") return "🚃";
-  if(c.m==="walk") return "🚶";
-}
-
-// ===== 描画 =====
-function render(){
-  renderTabs();
-  list.innerHTML="";
-
-  const cards=data.d[di].c;
-
-  cards.forEach((c,i)=>{
-    const el=document.createElement("div");
-    el.className="card";
-
-    el.innerHTML=`
-      <b>${icon(c)} ${c.s}-${c.e}</b><br>
-      ${c.tt||""}
-      <div class="small">${c.la?c.la+","+c.lo:"位置未設定"}</div>
-      ${c.cm?`<div class="md">${marked.parse(c.cm)}</div>`:""}
-    `;
-
-    el.onclick=()=>edit(i);
-
-    list.appendChild(el);
+function nearest(lat,lng){
+  let best=null,dist=999;
+  stations.forEach(s=>{
+    const d=(s.lat-lat)**2+(s.lng-lng)**2;
+    if(d<dist){dist=d;best=s;}
   });
-
-  new Sortable(list,{
-    animation:150,
-    onEnd:e=>{
-      const cards=data.d[di].c;
-      const item=cards.splice(e.oldIndex,1)[0];
-      cards.splice(e.newIndex,0,item);
-      save();
-    }
-  });
-
-  save();
+  return best;
 }
 
-// ===== タブ =====
-function renderTabs(){
-  tabs.innerHTML="";
-  data.d.forEach((d,i)=>{
-    const b=document.createElement("button");
-    b.innerText=d.dt;
-    b.onclick=()=>{di=i;render();}
-    tabs.appendChild(b);
-  });
-}
-
-// ===== 保存 =====
-function save(){
-  localStorage.setItem("t",JSON.stringify(data));
-}
-
-// ===== 新規 =====
-function newData(){
-  if(!confirm("全部消えます。OK?")) return;
-  data={d:[{dt:"1日目",c:[]}]};
-  di=0;
-  render();
-}
-
-// ===== 追加 =====
-function addDay(){
-  data.d.push({dt:`${data.d.length+1}日目`,c:[]});
-  di=data.d.length-1;
-  render();
-}
-
-function addCard(type){
-  const c={t:type,s:"09:00",e:"10:00"};
-  if(type==="m") c.m="car";
-  data.d[di].c.push(c);
-  render();
-}
-
-// ===== 編集 =====
-function edit(i){
-  ei=i;
-  const c=data.d[di].c[i];
-
-  editor.style.display="block";
-
-  title.value=c.tt||"";
-  start.value=c.s;
-  end.value=c.e;
-  mode.value=c.m||"car";
-  comment.value=c.cm||"";
-
-  initMap(c);
-}
-
-// ===== 地図 =====
-function initMap(c){
-  if(map) map.remove();
-
-  map=L.map("map").setView([c.la||35,c.lo||135],13);
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-  if(c.la){
-    marker=L.marker([c.la,c.lo]).addTo(map);
-  }
-
-  map.on("click",e=>{
-    const lat=+e.latlng.lat.toFixed(4);
-    const lng=+e.latlng.lng.toFixed(4);
-
-    if(marker) marker.remove();
-    marker=L.marker([lat,lng]).addTo(map);
-
-    const card=data.d[di].c[ei];
-    card.la=lat;
-    card.lo=lng;
-  });
-}
-
-// ===== 保存 =====
-function saveEdit(){
-  const c=data.d[di].c[ei];
-
-  c.tt=title.value;
-  c.s=start.value;
-  c.e=end.value;
-  c.m=mode.value;
-  c.cm=comment.value;
-
-  editor.style.display="none";
-  render();
-}
-
-// ===== 削除 =====
-function deleteCard(){
-  if(!confirm("削除しますか？")) return;
-  data.d[di].c.splice(ei,1);
-  editor.style.display="none";
-  render();
-}
-
-// ===== URL生成 =====
-let url="";
-function generate(){
-  const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
-  url="https://ntaokshaiyoa-afk.github.io/SimilarBird/?d="+d;
-  out.innerText=url;
-}
-
-// ===== URL読込 =====
-function loadFromURL(){
-  try{
-    const u=document.getElementById("loadUrl").value;
-    const d=new URL(u).searchParams.get("d");
-    data=JSON.parse(LZString.decompressFromEncodedURIComponent(d));
-    di=0;
-    render();
-  }catch{
-    alert("読み込み失敗");
-  }
-}
-
-// ===== コピー =====
-function copy(){
-  const i=document.createElement("input");
-  i.value=url;
-  document.body.appendChild(i);
-  i.select();
-  document.execCommand("copy");
-  document.body.removeChild(i);
-  alert("コピーOK");
-}
-
-// ===== QR =====
-function makeQR(){
-  QRCode.toCanvas(document.querySelector("canvas"),url);
-}
-
-render();
+map.on("click",e=>{
+  const s=nearest(e.latlng.lat,e.latlng.lng);
+  alert("最寄駅: "+s.name);
+});
 </script>
+
 </body>
 </html>
