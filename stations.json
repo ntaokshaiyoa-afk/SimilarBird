@@ -1,0 +1,5 @@
+[
+  {"name":"鳥羽","lat":34.483,"lng":136.843,"lines":["kintetsu"]},
+  {"name":"伊勢市","lat":34.487,"lng":136.709,"lines":["jr","kintetsu"]},
+  {"name":"名古屋","lat":35.170,"lng":136.881,"lines":["jr","kintetsu"]}
+]
