@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width">
-
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 
 <style>
@@ -13,15 +12,18 @@ body{margin:0;font-family:sans-serif;background:#f5f5f5;}
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);}
 .modalInner{background:white;margin:10%;padding:10px;}
 textarea{width:100%;height:60px;}
+button{margin:3px;}
 </style>
 </head>
 
 <body>
 
 <div class="top">
+  <button id="newBtn">🆕 新規作成</button>
   <button id="addDay">＋日</button>
-  <button id="addBtn">＋カード</button>
+  <button id="addCard">＋カード</button>
   <button id="genBtn">URL生成</button>
+  <button id="resetBtn">⚠ 初期化</button>
 </div>
 
 <div id="days"></div>
@@ -41,20 +43,17 @@ textarea{width:100%;height:60px;}
 </div>
 
 <script>
-// ===== 安全ラッパ =====
-function safe(fn){
-  try{fn();}catch(e){console.error(e);}
-}
-
 // ===== DOM =====
-const addDayBtn=document.getElementById("addDay");
-const addBtn=document.getElementById("addBtn");
-const genBtn=document.getElementById("genBtn");
-
 const daysEl=document.getElementById("days");
 const list=document.getElementById("list");
-const modal=document.getElementById("modal");
 
+const newBtn=document.getElementById("newBtn");
+const addDayBtn=document.getElementById("addDay");
+const addCardBtn=document.getElementById("addCard");
+const genBtn=document.getElementById("genBtn");
+const resetBtn=document.getElementById("resetBtn");
+
+const modal=document.getElementById("modal");
 const title=document.getElementById("title");
 const start=document.getElementById("start");
 const end=document.getElementById("end");
@@ -70,6 +69,15 @@ let data=load();
 let di=0;
 let editIndex=null;
 
+// ===== データ =====
+function createNew(){
+  return {
+    d:[
+      {dt:"1日目",c:[]}
+    ]
+  };
+}
+
 // ===== 保存 =====
 function save(){
   localStorage.setItem("timeline",JSON.stringify(data));
@@ -77,14 +85,32 @@ function save(){
 
 function load(){
   try{
-    return JSON.parse(localStorage.getItem("timeline"))
-      || {d:[{dt:"1日目",c:[]}]};
+    const d=JSON.parse(localStorage.getItem("timeline"));
+    return d || createNew();
   }catch{
-    return {d:[{dt:"1日目",c:[]}]};
+    return createNew();
   }
 }
 
-// ===== 日描画 =====
+// ===== 新規作成（重要）=====
+newBtn.onclick=()=>{
+  if(confirm("新規作成しますか？現在のデータは消えます")){
+    data=createNew();
+    di=0;
+    save();
+    render();
+  }
+};
+
+// ===== 初期化 =====
+resetBtn.onclick=()=>{
+  localStorage.removeItem("timeline");
+  data=createNew();
+  di=0;
+  render();
+};
+
+// ===== 日 =====
 function renderDays(){
   daysEl.innerHTML="";
   data.d.forEach((d,i)=>{
@@ -95,40 +121,34 @@ function renderDays(){
   });
 }
 
-// ===== カード描画 =====
+// ===== 描画 =====
 function render(){
-  safe(()=>{
-    renderDays();
-    list.innerHTML="";
+  renderDays();
+  list.innerHTML="";
 
-    data.d[di].c.forEach((c,i)=>{
-      const el=document.createElement("div");
-      el.className="card";
-      el.textContent=`${c.s} ${c.tt}`;
+  data.d[di].c.forEach((c,i)=>{
+    const el=document.createElement("div");
+    el.className="card";
+    el.textContent=`${c.s} ${c.tt}`;
 
-      el.onclick=()=>openEditor(i);
+    el.onclick=()=>openEditor(i);
 
-      list.appendChild(el);
-    });
+    list.appendChild(el);
   });
 }
 
-// ===== ボタン =====
+// ===== 日追加 =====
 addDayBtn.onclick=()=>{
   data.d.push({dt:`${data.d.length+1}日目`,c:[]});
   save();
   render();
 };
 
-addBtn.onclick=()=>{
+// ===== カード追加 =====
+addCardBtn.onclick=()=>{
   data.d[di].c.push({s:"09:00",e:"10:00",tt:"新規"});
   save();
   render();
-};
-
-genBtn.onclick=()=>{
-  const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
-  urlOut.value=location.href.split("?")[0].replace("editor","index")+"?d="+d;
 };
 
 // ===== 編集 =====
@@ -143,6 +163,7 @@ function openEditor(i){
   end.value=c.e;
 }
 
+// ===== 保存 =====
 saveBtn.onclick=()=>{
   const c=data.d[di].c[editIndex];
 
@@ -156,18 +177,34 @@ saveBtn.onclick=()=>{
   render();
 };
 
+// ===== 削除 =====
 delBtn.onclick=()=>{
   data.d[di].c.splice(editIndex,1);
+
   modal.style.display="none";
+
   save();
   render();
 };
 
+// ===== 閉じる =====
 closeBtn.onclick=()=>{
   modal.style.display="none";
 };
 
-// ===== 初期 =====
+// ===== URL（軽量）=====
+genBtn.onclick=()=>{
+  const compact=data.d.map(d=>({
+    dt:d.dt,
+    c:d.c.map(x=>[x.s,x.e,x.tt])
+  }));
+
+  const d=LZString.compressToEncodedURIComponent(JSON.stringify(compact));
+
+  urlOut.value=location.href.split("?")[0].replace("editor","index")+"?d="+d;
+};
+
+// 初期
 render();
 </script>
 
