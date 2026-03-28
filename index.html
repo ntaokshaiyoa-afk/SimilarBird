@@ -9,22 +9,25 @@
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <style>
-body{margin:0;font-family:sans-serif;}
-.card{background:#fff;margin:10px;padding:10px;border-radius:10px;}
-.map{height:150px;}
+body{margin:0;background:#f5f5f5;font-family:sans-serif;}
+.tabs{position:sticky;top:0;background:white;padding:10px;z-index:10;}
+.card{background:white;margin:10px;padding:10px;border-radius:10px;}
+.map{height:150px;margin-top:10px;}
 </style>
 </head>
 
 <body>
 
+<div id="tabs" class="tabs"></div>
 <div id="list"></div>
 
 <script>
 const raw=new URLSearchParams(location.search).get("d");
 const data=JSON.parse(LZString.decompressFromEncodedURIComponent(raw));
 
-const list=document.getElementById("list");
+let di=0;
 
+// ===== アイコン =====
 function icon(c){
   if(c.t==="a") return "🎯";
   if(c.m==="car") return "🚗";
@@ -32,42 +35,58 @@ function icon(c){
   if(c.m==="walk") return "🚶";
 }
 
+// ===== タブ =====
+function renderTabs(){
+  tabs.innerHTML="";
+  data.d.forEach((d,i)=>{
+    const b=document.createElement("button");
+    b.innerText=d.dt;
+    b.onclick=()=>{di=i;render();}
+    tabs.appendChild(b);
+  });
+}
+
 // ===== 描画 =====
-data.d[0].c.forEach((c,i)=>{
-  const el=document.createElement("div");
-  el.className="card";
+function render(){
+  renderTabs();
+  list.innerHTML="";
 
-  el.innerHTML=`
-    ${icon(c)} ${c.s}-${c.e}<br>
-    ${c.tt||""}
-    ${c.la?`<div id="m${i}" class="map"></div>`:""}
-  `;
+  const cards=data.d[di].c;
 
-  list.appendChild(el);
+  cards.forEach((c,i)=>{
+    const el=document.createElement("div");
+    el.className="card";
 
-  if(c.la) setTimeout(()=>initMap(i,c),0);
-});
+    el.innerHTML=`
+      <b>${icon(c)} ${c.s}-${c.e}</b><br>
+      ${c.tt||""}
+      ${c.la?`<div id="m${di}_${i}" class="map"></div>`:""}
+    `;
+
+    list.appendChild(el);
+
+    if(c.la) setTimeout(()=>initMap(di,i,c),0);
+  });
+}
 
 // ===== 地図 =====
-async function initMap(i,c){
-  const map=L.map("m"+i).setView([c.la,c.lo],13);
+async function initMap(di,i,c){
+  const map=L.map(`m${di}_${i}`).setView([c.la,c.lo],13);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
   L.marker([c.la,c.lo]).addTo(map);
 
-  // ルート再生成
-  const prev=data.d[0].c[i-1];
+  const prev=data.d[di].c[i-1];
   if(prev && prev.la){
     const url=`https://router.project-osrm.org/route/v1/driving/${prev.lo},${prev.la};${c.lo},${c.la}?overview=full&geometries=geojson`;
     const res=await fetch(url);
     const json=await res.json();
-
     const route=json.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
     L.polyline(route).addTo(map);
   }
 }
-</script>
 
+render();
+</script>
 </body>
 </html>
