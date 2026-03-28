@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Timeline Editor</title>
+<title>SimilarBird Editor</title>
 
+<!-- Libs -->
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
@@ -14,35 +15,24 @@
 
 <style>
 body{font-family:sans-serif;margin:0;background:#f5f5f5;}
-
-.top{
-  position:sticky;top:0;background:white;padding:10px;z-index:10;
-}
-
-.card{
-  background:white;margin:10px;padding:10px;border-radius:10px;
-  cursor:pointer;
-}
-
-button{margin:5px;padding:8px;}
-
-#editor{
-  position:fixed;top:10%;left:5%;right:5%;
-  background:white;padding:10px;border-radius:10px;
-  display:none;z-index:100;
-}
-
+.top{position:sticky;top:0;background:white;padding:10px;z-index:10;}
+.card{background:white;margin:10px;padding:10px;border-radius:10px;}
+#editor{position:fixed;top:10%;left:5%;right:5%;background:white;padding:10px;display:none;z-index:100;}
 #map{height:200px;margin-top:10px;}
-#out{word-break:break-all;background:#eee;padding:10px;}
+button{margin:5px;padding:8px;}
+#tabs button{margin-right:5px;}
+#out{background:#eee;padding:10px;word-break:break-all;}
 </style>
 </head>
 
 <body>
 
 <div class="top">
-  <button onclick="addCard('activity')">➕ 観光</button>
-  <button onclick="addCard('move')">➕ 移動</button>
-  <button onclick="generate()">URL生成</button>
+  <div id="tabs"></div>
+  <button onclick="addDay()">＋日</button>
+  <button onclick="addCard('activity')">＋観光</button>
+  <button onclick="addCard('move')">＋移動</button>
+  <button onclick="generate()">URL</button>
   <button onclick="copy()">コピー</button>
   <button onclick="makeQR()">QR</button>
 </div>
@@ -53,8 +43,18 @@ button{margin:5px;padding:8px;}
   <input id="title" placeholder="タイトル"><br>
   <input id="start" placeholder="08:30">
   <input id="end" placeholder="10:00"><br>
-  <textarea id="todos" placeholder="やること"></textarea>
+
+  <select id="mode">
+    <option value="car">🚗 車</option>
+    <option value="train">🚃 電車</option>
+    <option value="walk">🚶 徒歩</option>
+  </select>
+
+  <input id="search" placeholder="場所検索">
+  <button onclick="searchPlace()">検索</button>
+
   <div id="map"></div>
+
   <button onclick="saveEdit()">保存</button>
 </div>
 
@@ -62,52 +62,82 @@ button{margin:5px;padding:8px;}
 <canvas id="qr"></canvas>
 
 <script>
-// ===== データ =====
-let data=JSON.parse(localStorage.getItem("timeline")||'{"cards":[]}');
-let editingIndex=null;
+// ===== 初期データ =====
+let data = JSON.parse(localStorage.getItem("timeline") || '{"days":[{"date":"1日目","cards":[]}]}');
+let dayIndex=0;
+let editIndex=null;
 let map,marker;
+
+// ===== タブ =====
+function renderTabs(){
+  tabs.innerHTML="";
+  data.days.forEach((d,i)=>{
+    const b=document.createElement("button");
+    b.innerText=d.date;
+    b.onclick=()=>{dayIndex=i;render();}
+    tabs.appendChild(b);
+  });
+}
 
 // ===== 描画 =====
 function render(){
+  renderTabs();
   list.innerHTML="";
-  data.cards.forEach((c,i)=>{
+
+  const cards=data.days[dayIndex].cards;
+
+  cards.forEach((c,i)=>{
     const el=document.createElement("div");
     el.className="card";
-    el.innerHTML=`${c.start}-${c.end} ${c.title||c.mode}`;
+    el.innerText=`${c.start}-${c.end} ${c.title||c.mode}`;
     el.onclick=()=>edit(i);
     list.appendChild(el);
   });
-  saveLocal();
+
+  new Sortable(list,{
+    animation:150,
+    onEnd:e=>{
+      const item=cards.splice(e.oldIndex,1)[0];
+      cards.splice(e.newIndex,0,item);
+      save();
+    }
+  });
+
+  save();
 }
 
 // ===== 保存 =====
-function saveLocal(){
+function save(){
   localStorage.setItem("timeline",JSON.stringify(data));
 }
 
-// ===== 追加 =====
+// ===== 日追加 =====
+function addDay(){
+  data.days.push({date:`${data.days.length+1}日目`,cards:[]});
+  render();
+}
+
+// ===== カード追加 =====
 function addCard(type){
-  const c={
-    type:type,
-    start:"09:00",
-    end:"10:00"
-  };
+  const c={type,start:"09:00",end:"10:00"};
   if(type==="activity") c.title="観光";
   if(type==="move") c.mode="car";
-  data.cards.push(c);
+
+  data.days[dayIndex].cards.push(c);
   render();
 }
 
 // ===== 編集 =====
 function edit(i){
-  editingIndex=i;
-  const c=data.cards[i];
+  editIndex=i;
+  const c=data.days[dayIndex].cards[i];
 
   editor.style.display="block";
+
   title.value=c.title||"";
   start.value=c.start;
   end.value=c.end;
-  todos.value=(c.todos||[]).join(",");
+  mode.value=c.mode||"car";
 
   initMap(c);
 }
@@ -116,8 +146,7 @@ function edit(i){
 function initMap(c){
   if(map) map.remove();
 
-  map=L.map("map").setView([c.lat||35, c.lng||135], 13);
-
+  map=L.map("map").setView([c.lat||35,c.lng||135],13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
   if(c.lat){
@@ -129,34 +158,70 @@ function initMap(c){
     if(marker) marker.remove();
     marker=L.marker([lat,lng]).addTo(map);
 
-    data.cards[editingIndex].lat=lat;
-    data.cards[editingIndex].lng=lng;
+    const card=data.days[dayIndex].cards[editIndex];
+    card.lat=lat;
+    card.lng=lng;
+
+    autoRoute();
   });
+}
+
+// ===== ルート自動 =====
+async function autoRoute(){
+  const cards=data.days[dayIndex].cards;
+  if(editIndex===0) return;
+
+  const prev=cards[editIndex-1];
+  const cur=cards[editIndex];
+
+  if(!prev.lat||!cur.lat) return;
+
+  const url=`https://router.project-osrm.org/route/v1/driving/${prev.lng},${prev.lat};${cur.lng},${cur.lat}?overview=full&geometries=geojson`;
+
+  const res=await fetch(url);
+  const json=await res.json();
+
+  cur.route=json.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+}
+
+// ===== 検索 =====
+async function searchPlace(){
+  const q=search.value;
+  const url=`https://nominatim.openstreetmap.org/search?q=${q}&format=json`;
+
+  const res=await fetch(url);
+  const json=await res.json();
+
+  if(json[0]){
+    const lat=parseFloat(json[0].lat);
+    const lng=parseFloat(json[0].lon);
+
+    map.setView([lat,lng],14);
+
+    if(marker) marker.remove();
+    marker=L.marker([lat,lng]).addTo(map);
+
+    const c=data.days[dayIndex].cards[editIndex];
+    c.lat=lat;
+    c.lng=lng;
+
+    autoRoute();
+  }
 }
 
 // ===== 保存 =====
 function saveEdit(){
-  const c=data.cards[editingIndex];
+  const c=data.days[dayIndex].cards[editIndex];
   c.title=title.value;
   c.start=start.value;
   c.end=end.value;
-  c.todos=todos.value.split(",");
+  c.mode=mode.value;
 
   editor.style.display="none";
   render();
 }
 
-// ===== D&D =====
-new Sortable(list,{
-  animation:150,
-  onEnd:e=>{
-    const item=data.cards.splice(e.oldIndex,1)[0];
-    data.cards.splice(e.newIndex,0,item);
-    saveLocal();
-  }
-});
-
-// ===== URL生成 =====
+// ===== URL =====
 let url="";
 function generate(){
   const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
