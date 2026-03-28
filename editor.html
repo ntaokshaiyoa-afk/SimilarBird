@@ -4,7 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width">
 
+<!-- ライブラリ -->
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+<script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -14,7 +16,13 @@ body{margin:0;font-family:sans-serif;background:#f5f5f5;}
 
 .top{padding:10px;background:white;position:sticky;top:0;}
 
-.card{background:white;margin:10px;padding:10px;border-radius:10px;}
+.card{
+  background:white;
+  margin:10px;
+  padding:10px;
+  border-radius:10px;
+  cursor:grab;
+}
 
 .modal{
   display:none;
@@ -31,6 +39,7 @@ body{margin:0;font-family:sans-serif;background:#f5f5f5;}
 }
 
 #map{height:200px;margin-top:10px;}
+textarea{width:100%;height:80px;}
 </style>
 </head>
 
@@ -44,15 +53,16 @@ body{margin:0;font-family:sans-serif;background:#f5f5f5;}
 
 <div id="list"></div>
 
-<textarea id="urlOut" style="width:100%;height:60px;"></textarea>
+<textarea id="urlOut" placeholder="生成URL"></textarea>
 
+<!-- モーダル -->
 <div id="modal" class="modal">
   <div class="modalInner">
     <h3>編集</h3>
 
-    <input id="title"><br>
-    <input id="start">
-    <input id="end"><br>
+    <input id="title" placeholder="タイトル"><br>
+    <input id="start" placeholder="09:00">
+    <input id="end" placeholder="10:00"><br>
 
     <select id="mode">
       <option value="walk">徒歩</option>
@@ -60,7 +70,7 @@ body{margin:0;font-family:sans-serif;background:#f5f5f5;}
       <option value="train">電車</option>
     </select>
 
-    <textarea id="comment"></textarea>
+    <textarea id="comment" placeholder="メモ"></textarea>
 
     <div id="map"></div>
 
@@ -70,7 +80,7 @@ body{margin:0;font-family:sans-serif;background:#f5f5f5;}
   </div>
 </div>
 
-<script type="module">
+<script>
 // ===== DOM =====
 const list=document.getElementById("list");
 const modal=document.getElementById("modal");
@@ -82,21 +92,36 @@ const mode=document.getElementById("mode");
 const comment=document.getElementById("comment");
 
 // ===== 状態 =====
-let data={d:[{dt:"1日目",c:[]}]};
+let data=loadLocal();
 let editIndex=null;
 let map=null;
 let marker=null;
 
+// ===== ローカル保存 =====
+function saveLocal(){
+  localStorage.setItem("timeline", JSON.stringify(data));
+}
+
+function loadLocal(){
+  try{
+    return JSON.parse(localStorage.getItem("timeline")) 
+      || {d:[{dt:"1日目",c:[]}]};
+  }catch{
+    return {d:[{dt:"1日目",c:[]}]};
+  }
+}
+
 // ===== 追加 =====
-document.getElementById("addBtn").addEventListener("click",()=>{
+document.getElementById("addBtn").onclick=()=>{
   data.d[0].c.push({
     s:"09:00",
     e:"10:00",
     tt:"新規",
     m:"walk"
   });
+  saveLocal();
   render();
-});
+};
 
 // ===== 描画 =====
 function render(){
@@ -107,9 +132,19 @@ function render(){
     el.className="card";
     el.textContent=`${c.s} ${c.tt}`;
 
-    el.addEventListener("click",()=>openEditor(i));
+    el.onclick=()=>openEditor(i);
 
     list.appendChild(el);
+  });
+
+  // ===== 並び替え =====
+  new Sortable(list,{
+    animation:150,
+    onEnd:(e)=>{
+      const item=data.d[0].c.splice(e.oldIndex,1)[0];
+      data.d[0].c.splice(e.newIndex,0,item);
+      saveLocal();
+    }
   });
 }
 
@@ -156,7 +191,7 @@ function initMap(c){
 }
 
 // ===== 保存 =====
-document.getElementById("saveBtn").addEventListener("click",()=>{
+document.getElementById("saveBtn").onclick=()=>{
   const c=data.d[0].c[editIndex];
 
   c.tt=title.value;
@@ -166,34 +201,42 @@ document.getElementById("saveBtn").addEventListener("click",()=>{
   c.cm=comment.value;
 
   modal.style.display="none";
+
+  saveLocal();
   render();
-});
+};
 
 // ===== 削除 =====
-document.getElementById("delBtn").addEventListener("click",()=>{
+document.getElementById("delBtn").onclick=()=>{
   data.d[0].c.splice(editIndex,1);
+
   modal.style.display="none";
+
+  saveLocal();
   render();
-});
+};
 
 // ===== 閉じる =====
-document.getElementById("closeBtn").addEventListener("click",()=>{
+document.getElementById("closeBtn").onclick=()=>{
   modal.style.display="none";
-});
+};
 
 // ===== URL生成 =====
 let currentURL="";
 
-document.getElementById("genBtn").addEventListener("click",()=>{
+document.getElementById("genBtn").onclick=()=>{
   const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
 
-  currentURL=location.origin + location.pathname.replace("editor.html","index.html") + "?d=" + d;
+  currentURL=
+    location.origin +
+    location.pathname.replace("editor.html","index.html") +
+    "?d=" + d;
 
   document.getElementById("urlOut").value=currentURL;
-});
+};
 
 // ===== コピー =====
-document.getElementById("copyBtn").addEventListener("click",()=>{
+document.getElementById("copyBtn").onclick=()=>{
   if(!currentURL){
     alert("先にURL生成してください");
     return;
@@ -201,9 +244,9 @@ document.getElementById("copyBtn").addEventListener("click",()=>{
 
   navigator.clipboard.writeText(currentURL);
   alert("コピーしました");
-});
+};
 
-// 初期
+// ===== 初期 =====
 render();
 </script>
 
