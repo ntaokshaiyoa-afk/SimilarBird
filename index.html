@@ -5,14 +5,70 @@
 <meta name="viewport" content="width=device-width">
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <style>
-body{margin:0;background:#f5f5f5;font-family:sans-serif;}
-.tabs{position:sticky;top:0;background:white;padding:10px;z-index:10;}
-.card{background:white;margin:10px;padding:10px;border-radius:10px;}
-.map{height:150px;margin-top:10px;}
+body{
+  margin:0;
+  background:#f5f5f5;
+  font-family:sans-serif;
+}
+
+/* タブ */
+.tabs{
+  position:sticky;
+  top:0;
+  background:white;
+  padding:10px;
+  z-index:10;
+}
+
+/* カード */
+.card{
+  background:white;
+  margin:10px;
+  padding:12px;
+  border-radius:12px;
+}
+
+/* 地図 */
+.map{
+  height:150px;
+  margin-top:10px;
+  border-radius:8px;
+}
+
+/* Markdown */
+.md{
+  background:#fafafa;
+  padding:8px;
+  margin-top:8px;
+  border-radius:8px;
+}
+
+/* チェック */
+.md input[type=checkbox]{
+  transform:scale(1.4);
+  margin-right:6px;
+}
+
+.done{
+  opacity:0.5;
+  text-decoration:line-through;
+}
+
+.next{
+  position:fixed;
+  bottom:0;
+  width:100%;
+  background:#007aff;
+  color:white;
+  padding:10px;
+  font-weight:bold;
+}
 </style>
 </head>
 
@@ -20,12 +76,17 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 
 <div id="tabs" class="tabs"></div>
 <div id="list"></div>
+<div id="next" class="next"></div>
 
 <script>
+// ===== データ =====
 const raw=new URLSearchParams(location.search).get("d");
 const data=JSON.parse(LZString.decompressFromEncodedURIComponent(raw));
 
 let di=0;
+
+// ===== チェック状態 =====
+let checkState=JSON.parse(localStorage.getItem("check")||"{}");
 
 // ===== アイコン =====
 function icon(c){
@@ -46,6 +107,46 @@ function renderTabs(){
   });
 }
 
+// ===== Markdown処理 =====
+function renderMD(md,cardId){
+  const html=marked.parse(md);
+
+  const div=document.createElement("div");
+  div.innerHTML=html;
+
+  // チェックボックス処理
+  const checks=div.querySelectorAll("input[type=checkbox]");
+
+  checks.forEach((cb,i)=>{
+    const key=`${cardId}_${i}`;
+
+    // 状態復元
+    if(checkState[key]) cb.checked=true;
+
+    updateStyle(cb);
+
+    cb.addEventListener("change",()=>{
+      checkState[key]=cb.checked;
+      localStorage.setItem("check",JSON.stringify(checkState));
+      updateStyle(cb);
+    });
+  });
+
+  return div.innerHTML;
+}
+
+// ===== スタイル更新 =====
+function updateStyle(cb){
+  const li=cb.closest("li");
+  if(!li) return;
+
+  if(cb.checked){
+    li.classList.add("done");
+  }else{
+    li.classList.remove("done");
+  }
+}
+
 // ===== 描画 =====
 function render(){
   renderTabs();
@@ -60,6 +161,7 @@ function render(){
     el.innerHTML=`
       <b>${icon(c)} ${c.s}-${c.e}</b><br>
       ${c.tt||""}
+      ${c.cm?`<div class="md">${renderMD(c.cm,`${di}_${i}`)}</div>`:""}
       ${c.la?`<div id="m${di}_${i}" class="map"></div>`:""}
     `;
 
@@ -67,6 +169,8 @@ function render(){
 
     if(c.la) setTimeout(()=>initMap(di,i,c),0);
   });
+
+  updateNext();
 }
 
 // ===== 地図 =====
@@ -81,12 +185,38 @@ async function initMap(di,i,c){
     const url=`https://router.project-osrm.org/route/v1/driving/${prev.lo},${prev.la};${c.lo},${c.la}?overview=full&geometries=geojson`;
     const res=await fetch(url);
     const json=await res.json();
+
     const route=json.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
     L.polyline(route).addTo(map);
   }
 }
 
+// ===== 次カード =====
+function updateNext(){
+  const now=new Date();
+  const nowMin=now.getHours()*60+now.getMinutes();
+
+  const cards=data.d[di].c;
+
+  let next=null;
+
+  cards.forEach(c=>{
+    const [h,m]=c.s.split(":");
+    const t=h*60+ +m;
+
+    if(t>=nowMin && !next) next=c;
+  });
+
+  nextEl.innerText=next
+    ? `次: ${next.s} ${next.tt||next.m}`
+    : "本日の予定終了";
+}
+
+const nextEl=document.getElementById("next");
+
+// ===== 初期描画 =====
 render();
 </script>
+
 </body>
 </html>
