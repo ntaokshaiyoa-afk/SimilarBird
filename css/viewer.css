@@ -1,0 +1,10 @@
+.tabs{
+  position:sticky;top:0;background:white;
+  padding:10px;z-index:1000;
+}
+
+.next{
+  position:fixed;bottom:0;width:100%;
+  background:#007aff;color:white;
+  padding:10px;
+}
