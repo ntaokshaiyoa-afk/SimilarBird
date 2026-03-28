@@ -5,13 +5,33 @@
 <meta name="viewport" content="width=device-width">
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-<link rel="stylesheet" href="./css/style.css">
-<link rel="stylesheet" href="./css/editor.css">
+<style>
+body{margin:0;font-family:sans-serif;background:#f5f5f5;}
+
+.top{padding:10px;background:white;position:sticky;top:0;}
+
+.card{background:white;margin:10px;padding:10px;border-radius:10px;}
+
+.modal{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.5);
+}
+
+.modalInner{
+  background:white;
+  margin:10%;
+  padding:10px;
+  border-radius:10px;
+}
+
+#map{height:200px;margin-top:10px;}
+</style>
 </head>
 
 <body>
@@ -24,35 +44,168 @@
 
 <div id="list"></div>
 
-<textarea id="urlOut" placeholder="生成URL" style="width:100%;height:60px;"></textarea>
+<textarea id="urlOut" style="width:100%;height:60px;"></textarea>
 
-<!-- モーダル -->
 <div id="modal" class="modal">
   <div class="modalInner">
     <h3>編集</h3>
 
-    <input id="title" placeholder="タイトル"><br>
-    <input id="start" placeholder="09:00">
-    <input id="end" placeholder="10:00"><br>
+    <input id="title"><br>
+    <input id="start">
+    <input id="end"><br>
 
     <select id="mode">
-      <option value="walk">🚶 徒歩</option>
-      <option value="car">🚗 車</option>
-      <option value="train">🚃 電車</option>
-      <option value="a">🎯 観光</option>
+      <option value="walk">徒歩</option>
+      <option value="car">車</option>
+      <option value="train">電車</option>
     </select>
 
-    <textarea id="comment" placeholder="Markdown"></textarea>
+    <textarea id="comment"></textarea>
 
-    <div id="map" style="height:200px;"></div>
+    <div id="map"></div>
 
     <button id="saveBtn">保存</button>
     <button id="delBtn">削除</button>
-    <button onclick="closeModal()">閉じる</button>
+    <button id="closeBtn">閉じる</button>
   </div>
 </div>
 
-<script type="module" src="./js/editor.js"></script>
+<script type="module">
+// ===== DOM =====
+const list=document.getElementById("list");
+const modal=document.getElementById("modal");
+
+const title=document.getElementById("title");
+const start=document.getElementById("start");
+const end=document.getElementById("end");
+const mode=document.getElementById("mode");
+const comment=document.getElementById("comment");
+
+// ===== 状態 =====
+let data={d:[{dt:"1日目",c:[]}]};
+let editIndex=null;
+let map=null;
+let marker=null;
+
+// ===== 追加 =====
+document.getElementById("addBtn").addEventListener("click",()=>{
+  data.d[0].c.push({
+    s:"09:00",
+    e:"10:00",
+    tt:"新規",
+    m:"walk"
+  });
+  render();
+});
+
+// ===== 描画 =====
+function render(){
+  list.innerHTML="";
+
+  data.d[0].c.forEach((c,i)=>{
+    const el=document.createElement("div");
+    el.className="card";
+    el.textContent=`${c.s} ${c.tt}`;
+
+    el.addEventListener("click",()=>openEditor(i));
+
+    list.appendChild(el);
+  });
+}
+
+// ===== 編集 =====
+function openEditor(i){
+  editIndex=i;
+  const c=data.d[0].c[i];
+
+  modal.style.display="block";
+
+  title.value=c.tt||"";
+  start.value=c.s;
+  end.value=c.e;
+  mode.value=c.m||"walk";
+  comment.value=c.cm||"";
+
+  initMap(c);
+}
+
+// ===== 地図 =====
+function initMap(c){
+  if(map){
+    map.remove();
+    map=null;
+  }
+
+  map=L.map("map").setView([c.la||35,c.lo||139],13);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+  if(c.la){
+    marker=L.marker([c.la,c.lo]).addTo(map);
+  }
+
+  map.on("click",(e)=>{
+    if(marker) marker.remove();
+
+    marker=L.marker(e.latlng).addTo(map);
+
+    const card=data.d[0].c[editIndex];
+    card.la=e.latlng.lat;
+    card.lo=e.latlng.lng;
+  });
+}
+
+// ===== 保存 =====
+document.getElementById("saveBtn").addEventListener("click",()=>{
+  const c=data.d[0].c[editIndex];
+
+  c.tt=title.value;
+  c.s=start.value;
+  c.e=end.value;
+  c.m=mode.value;
+  c.cm=comment.value;
+
+  modal.style.display="none";
+  render();
+});
+
+// ===== 削除 =====
+document.getElementById("delBtn").addEventListener("click",()=>{
+  data.d[0].c.splice(editIndex,1);
+  modal.style.display="none";
+  render();
+});
+
+// ===== 閉じる =====
+document.getElementById("closeBtn").addEventListener("click",()=>{
+  modal.style.display="none";
+});
+
+// ===== URL生成 =====
+let currentURL="";
+
+document.getElementById("genBtn").addEventListener("click",()=>{
+  const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
+
+  currentURL=location.origin + location.pathname.replace("editor.html","index.html") + "?d=" + d;
+
+  document.getElementById("urlOut").value=currentURL;
+});
+
+// ===== コピー =====
+document.getElementById("copyBtn").addEventListener("click",()=>{
+  if(!currentURL){
+    alert("先にURL生成してください");
+    return;
+  }
+
+  navigator.clipboard.writeText(currentURL);
+  alert("コピーしました");
+});
+
+// 初期
+render();
+</script>
 
 </body>
 </html>
