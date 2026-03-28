@@ -12,197 +12,73 @@
 
 <style>
 body{margin:0;background:#f5f5f5;font-family:sans-serif;}
-
-.tabs{
-  position:sticky;top:0;background:white;
-  padding:10px;z-index:10;
-}
-
-.card{
-  background:white;margin:10px;padding:12px;
-  border-radius:12px;
-}
-
-.map{
-  height:150px;
-  margin-top:10px;
-  border-radius:8px;
-}
-
-.md{
-  background:#fafafa;
-  padding:8px;
-  margin-top:8px;
-  border-radius:8px;
-}
-
-.next{
-  position:fixed;
-  bottom:0;width:100%;
-  background:#007aff;color:white;
-  padding:10px;
-}
+.card{background:white;margin:10px;padding:12px;border-radius:12px;}
+.map{height:150px;margin-top:10px;}
 </style>
 </head>
 
 <body>
-
-<div id="tabs" class="tabs"></div>
 <div id="list"></div>
-<div id="next" class="next"></div>
 
 <script>
-// ===== データ =====
 const raw=new URLSearchParams(location.search).get("d");
 const data=JSON.parse(LZString.decompressFromEncodedURIComponent(raw));
 
-let di=0;
-const lineCache={};
+let stations=[];
+fetch("./stations.json").then(r=>r.json()).then(s=>stations=s);
 
-// ===== アイコン =====
-function icon(c){
-  if(c.t==="a") return "🎯";
-  if(c.m==="car") return "🚗";
-  if(c.m==="train") return "🚃";
-  if(c.m==="walk") return "🚶";
+// ===== 最寄駅 =====
+function nearest(lat,lng){
+  let best=null,dist=999;
+  stations.forEach(s=>{
+    const d=(s.lat-lat)**2+(s.lng-lng)**2;
+    if(d<dist){dist=d;best=s;}
+  });
+  return best;
 }
 
-// ===== タブ =====
-function renderTabs(){
-  tabs.innerHTML="";
-  data.d.forEach((d,i)=>{
-    const b=document.createElement("button");
-    b.innerText=d.dt;
-    b.onclick=()=>{di=i;render();}
-    tabs.appendChild(b);
-  });
+// ===== 路線判定 =====
+function guessLine(a,b){
+  if(!a||!b) return null;
+  return a.lines.find(l=>b.lines.includes(l));
 }
 
 // ===== 描画 =====
-function render(){
-  renderTabs();
-  list.innerHTML="";
+data.d[0].c.forEach((c,i)=>{
+  const el=document.createElement("div");
+  el.className="card";
+  el.innerHTML=`${c.s}-${c.e} ${c.tt||""}<div id="m${i}" class="map"></div>`;
+  list.appendChild(el);
 
-  const cards=data.d[di].c;
+  setTimeout(()=>initMap(i,c),0);
+});
 
-  cards.forEach((c,i)=>{
-    const el=document.createElement("div");
-    el.className="card";
-
-    el.innerHTML=`
-      <b>${icon(c)} ${c.s}-${c.e}</b><br>
-      ${c.tt||""}
-      ${c.cm?`<div class="md">${marked.parse(c.cm)}</div>`:""}
-      ${c.la?`<div id="m${di}_${i}" class="map"></div>`:""}
-    `;
-
-    list.appendChild(el);
-
-    if(c.la) setTimeout(()=>initMap(di,i,c),0);
-  });
-
-  updateNext();
-}
-
-// ===== 地図 =====
-async function initMap(di,i,c){
-  const map=L.map(`m${di}_${i}`).setView([c.la,c.lo],13);
-
+async function initMap(i,c){
+  const map=L.map(`m${i}`).setView([c.la,c.lo],13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
   L.marker([c.la,c.lo]).addTo(map);
 
-  const prev=data.d[di].c[i-1];
-  if(!prev || !prev.la) return;
+  const prev=data.d[0].c[i-1];
+  if(!prev) return;
 
   if(c.m==="train"){
-    await drawTrain(map, prev, c);
-  }else{
-    await drawCar(map, prev, c);
-  }
-}
+    const a=nearest(prev.la,prev.lo);
+    const b=nearest(c.la,c.lo);
+    const line=guessLine(a,b);
 
-// ===== 車ルート =====
-async function drawCar(map, prev, cur){
-  const url=`https://router.project-osrm.org/route/v1/driving/${prev.lo},${prev.la};${cur.lo},${cur.la}?overview=full&geometries=geojson`;
-
-  try{
-    const res=await fetch(url);
-    const json=await res.json();
-    const route=json.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
-
-    L.polyline(route,{color:"black"}).addTo(map);
-  }catch{
-    drawFallback(map, prev, cur);
-  }
-}
-
-// ===== 電車ルート =====
-async function drawTrain(map, prev, cur){
-  if(!cur.line){
-    drawFallback(map, prev, cur, "blue");
-    return;
+    if(line){
+      try{
+        const geo=await fetch(`./lines/${line}.json`).then(r=>r.json());
+        L.geoJSON(geo,{color:"blue"}).addTo(map);
+        return;
+      }catch{}
+    }
   }
 
-  try{
-    const geo=await loadLine(cur.line);
-
-    L.geoJSON(geo,{
-      style:{color:"blue",weight:4}
-    }).addTo(map);
-
-  }catch{
-    drawFallback(map, prev, cur, "blue");
-  }
+  // fallback
+  L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{dashArray:"6,6"}).addTo(map);
 }
-
-// ===== GeoJSONロード =====
-async function loadLine(line){
-  if(lineCache[line]) return lineCache[line];
-
-  const res=await fetch(`./lines/${line}.json`);
-
-  if(!res.ok) throw "no file";
-
-  const json=await res.json();
-  lineCache[line]=json;
-
-  return json;
-}
-
-// ===== フォールバック =====
-function drawFallback(map, prev, cur, color="gray"){
-  L.polyline([
-    [prev.la, prev.lo],
-    [cur.la, cur.lo]
-  ],{
-    color:color,
-    dashArray:"6,6"
-  }).addTo(map);
-}
-
-// ===== 次予定 =====
-function updateNext(){
-  const now=new Date();
-  const nowMin=now.getHours()*60+now.getMinutes();
-
-  let next=null;
-
-  data.d[di].c.forEach(c=>{
-    const [h,m]=c.s.split(":");
-    const t=h*60+ +m;
-    if(t>=nowMin && !next) next=c;
-  });
-
-  nextEl.innerText=next
-    ? `次: ${next.s} ${next.tt||next.m}`
-    : "予定終了";
-}
-
-const nextEl=document.getElementById("next");
-
-// ===== 初期描画 =====
-render();
 </script>
-
 </body>
 </html>
