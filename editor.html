@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width">
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <link rel="stylesheet" href="./css/style.css">
 <link rel="stylesheet" href="./css/editor.css">
@@ -15,9 +19,38 @@
 <div class="top">
   <button id="addBtn">＋カード</button>
   <button id="genBtn">URL生成</button>
+  <button id="copyBtn">コピー</button>
 </div>
 
 <div id="list"></div>
+
+<textarea id="urlOut" placeholder="生成URL" style="width:100%;height:60px;"></textarea>
+
+<!-- モーダル -->
+<div id="modal" class="modal">
+  <div class="modalInner">
+    <h3>編集</h3>
+
+    <input id="title" placeholder="タイトル"><br>
+    <input id="start" placeholder="09:00">
+    <input id="end" placeholder="10:00"><br>
+
+    <select id="mode">
+      <option value="walk">🚶 徒歩</option>
+      <option value="car">🚗 車</option>
+      <option value="train">🚃 電車</option>
+      <option value="a">🎯 観光</option>
+    </select>
+
+    <textarea id="comment" placeholder="Markdown"></textarea>
+
+    <div id="map" style="height:200px;"></div>
+
+    <button id="saveBtn">保存</button>
+    <button id="delBtn">削除</button>
+    <button onclick="closeModal()">閉じる</button>
+  </div>
+</div>
 
 <script type="module" src="./js/editor.js"></script>
 
