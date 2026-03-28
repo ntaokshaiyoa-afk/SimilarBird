@@ -13,39 +13,66 @@
 
 <style>
 body{font-family:sans-serif;margin:0;background:#f5f5f5;}
-.top{position:sticky;top:0;background:white;padding:10px;}
-.card{background:white;margin:10px;padding:10px;border-radius:10px;}
-#editor{position:fixed;top:10%;left:5%;right:5%;background:white;padding:10px;display:none;}
-#map{height:200px;}
-#out{background:#eee;padding:10px;word-break:break-all;user-select:all;}
+.top{position:sticky;top:0;background:white;padding:10px;z-index:10;}
+
+.tabs button{margin-right:5px;}
+
+.card{
+  background:white;margin:10px;padding:12px;
+  border-radius:12px;
+}
+
+.card b{font-size:16px;}
+
+.small{color:#666;font-size:12px;}
+
+#editor{
+  position:fixed;top:5%;left:5%;right:5%;
+  background:white;padding:10px;border-radius:12px;
+  display:none;z-index:100;
+}
+
+#map{height:200px;margin-top:10px;}
+
+#out{
+  background:#eee;padding:10px;
+  word-break:break-all;
+  user-select:all;
+}
 </style>
 </head>
 
 <body>
 
 <div class="top">
+  <div id="tabs" class="tabs"></div>
   <button onclick="addDay()">＋日</button>
   <button onclick="addCard('a')">＋観光</button>
   <button onclick="addCard('m')">＋移動</button>
   <button onclick="generate()">URL</button>
   <button onclick="copy()">コピー</button>
-  <button onclick="qr()">QR</button>
+  <button onclick="makeQR()">QR</button>
 </div>
 
 <div id="list"></div>
 
 <div id="editor">
-  <input id="title"><br>
-  <input id="start">
-  <input id="end"><br>
+  <h3>編集</h3>
+  <input id="title" placeholder="タイトル"><br>
+  <input id="start" placeholder="08:30">
+  <input id="end" placeholder="10:00"><br>
 
   <select id="mode">
-    <option value="car">🚗</option>
-    <option value="train">🚃</option>
-    <option value="walk">🚶</option>
+    <option value="car">🚗 車</option>
+    <option value="train">🚃 電車</option>
+    <option value="walk">🚶 徒歩</option>
   </select>
 
+  <input id="search" placeholder="場所検索">
+  <button onclick="searchPlace()">検索</button>
+
   <div id="map"></div>
+
   <button onclick="saveEdit()">保存</button>
 </div>
 
@@ -53,23 +80,55 @@ body{font-family:sans-serif;margin:0;background:#f5f5f5;}
 <canvas id="qr"></canvas>
 
 <script>
-const list = document.getElementById("list");
+const tabs=document.getElementById("tabs");
+const list=document.getElementById("list");
 
 // ===== データ =====
-let data = JSON.parse(localStorage.getItem("t")||'{"d":[{"dt":"1日目","c":[]}]}');
+let data=JSON.parse(localStorage.getItem("t")||'{"d":[{"dt":"1日目","c":[]}]}');
 let di=0, ei=null;
-let map,marker;
+let map, marker;
+
+// ===== アイコン =====
+function icon(c){
+  if(c.t==="a") return "🎯";
+  if(c.m==="car") return "🚗";
+  if(c.m==="train") return "🚃";
+  if(c.m==="walk") return "🚶";
+  return "📍";
+}
+
+// ===== タブ =====
+function renderTabs(){
+  tabs.innerHTML="";
+  data.d.forEach((d,i)=>{
+    const b=document.createElement("button");
+    b.innerText=d.dt;
+    b.onclick=()=>{di=i;render();}
+    tabs.appendChild(b);
+  });
+}
 
 // ===== 描画 =====
 function render(){
+  renderTabs();
   list.innerHTML="";
+
   const cards=data.d[di].c;
 
   cards.forEach((c,i)=>{
     const el=document.createElement("div");
     el.className="card";
-    el.innerText=`${icon(c)} ${c.s}-${c.e}`;
+
+    el.innerHTML=`
+      <b>${icon(c)} ${c.s}-${c.e}</b><br>
+      ${c.tt||""}<br>
+      <div class="small">
+        ${c.la?`📍 ${c.la},${c.lo}`:"位置未設定"}
+      </div>
+    `;
+
     el.onclick=()=>edit(i);
+
     list.appendChild(el);
   });
 
@@ -81,14 +140,8 @@ function render(){
       save();
     }
   });
-}
 
-// ===== アイコン =====
-function icon(c){
-  if(c.t==="a") return "🎯";
-  if(c.m==="car") return "🚗";
-  if(c.m==="train") return "🚃";
-  if(c.m==="walk") return "🚶";
+  save();
 }
 
 // ===== 保存 =====
@@ -98,7 +151,7 @@ function save(){
 
 // ===== 追加 =====
 function addDay(){
-  data.d.push({dt:"日"+(data.d.length+1),c:[]});
+  data.d.push({dt:`${data.d.length+1}日目`,c:[]});
   di=data.d.length-1;
   render();
 }
@@ -132,9 +185,13 @@ function initMap(c){
   map=L.map("map").setView([c.la||35,c.lo||135],13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
+  if(c.la){
+    marker=L.marker([c.la,c.lo]).addTo(map);
+  }
+
   map.on("click",e=>{
-    let lat=+e.latlng.lat.toFixed(4);
-    let lng=+e.latlng.lng.toFixed(4);
+    const lat=+e.latlng.lat.toFixed(4);
+    const lng=+e.latlng.lng.toFixed(4);
 
     if(marker) marker.remove();
     marker=L.marker([lat,lng]).addTo(map);
@@ -143,6 +200,29 @@ function initMap(c){
     card.la=lat;
     card.lo=lng;
   });
+}
+
+// ===== 検索 =====
+async function searchPlace(){
+  const q=document.getElementById("search").value;
+  const url=`https://nominatim.openstreetmap.org/search?q=${q}&format=json`;
+
+  const res=await fetch(url);
+  const json=await res.json();
+
+  if(json[0]){
+    const lat=parseFloat(json[0].lat);
+    const lng=parseFloat(json[0].lon);
+
+    map.setView([lat,lng],14);
+
+    if(marker) marker.remove();
+    marker=L.marker([lat,lng]).addTo(map);
+
+    const c=data.d[di].c[ei];
+    c.la=lat;
+    c.lo=lng;
+  }
 }
 
 // ===== 保存 =====
@@ -166,7 +246,7 @@ function generate(){
   out.innerText=url;
 }
 
-// ===== コピー（完全対応） =====
+// ===== コピー =====
 function copy(){
   const i=document.createElement("input");
   i.value=url;
@@ -178,7 +258,7 @@ function copy(){
 }
 
 // ===== QR =====
-function qr(){
+function makeQR(){
   QRCode.toCanvas(document.getElementById("qr"),url);
 }
 
