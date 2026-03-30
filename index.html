@@ -133,20 +133,117 @@ function render(){
   updateNext();
 }
 
+  // ===== 路線キャッシュ =====
+const lineCache={};
+
+async function loadLine(name){
+  if(lineCache[name]) return lineCache[name];
+  try{
+    const res=await fetch(`./geojson/${name}.geojson`);
+    const geo=await res.json();
+    lineCache[name]=geo;
+    return geo;
+  }catch{
+    return null;
+  }
+}
+
+// 距離
+function dist(a,b){
+  return (a[0]-b[0])**2+(a[1]-b[1])**2;
+}
+
+// ★ 最重要：正しいセグメント抽出
+function extractSegment(geo, from, to){
+  let bestLine=null;
+  let bestScore=Infinity;
+
+  geo.features.forEach(f=>{
+    let lines=[];
+
+    if(f.geometry.type==="LineString"){
+      lines=[f.geometry.coordinates];
+    }else if(f.geometry.type==="MultiLineString"){
+      lines=f.geometry.coordinates;
+    }
+
+    lines.forEach(line=>{
+      let minFrom=Infinity, minTo=Infinity;
+      let idxFrom=0, idxTo=0;
+
+      line.forEach((p,i)=>{
+        const d1=dist(p,from);
+        const d2=dist(p,to);
+
+        if(d1<minFrom){minFrom=d1;idxFrom=i;}
+        if(d2<minTo){minTo=d2;idxTo=i;}
+      });
+
+      const score=minFrom+minTo;
+
+      if(score<bestScore){
+        bestScore=score;
+
+        // 切り出し
+        if(idxFrom<idxTo){
+          bestLine=line.slice(idxFrom, idxTo+1);
+        }else{
+          bestLine=line.slice(idxTo, idxFrom+1).reverse();
+        }
+      }
+    });
+  });
+
+  return bestLine;
+}
+
 // ===== 地図 =====
-function initMap(di,i,c){
+async function initMap(di,i,c){
   const map=L.map(`m${di}_${i}`).setView([c.la,c.lo],13);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
   L.marker([c.la,c.lo]).addTo(map);
 
   const prev=data.d[di].c[i-1];
-  if(!prev) return;
+  if(!prev || !prev.la) return;
 
-  L.polyline([
-    [prev.la,prev.lo],
-    [c.la,c.lo]
-  ],{dashArray:"6,6"}).addTo(map);
+  // 徒歩・車
+  if(c.m!=="train"){
+    L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
+      dashArray:"6,6"
+    }).addTo(map);
+    return;
+  }
+
+  // 電車
+  if(!c.line){
+    L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
+      color:"red"
+    }).addTo(map);
+    return;
+  }
+
+  const geo=await loadLine(c.line);
+  if(!geo) return;
+
+  const seg=extractSegment(
+    geo,
+    [prev.lo,prev.la],
+    [c.lo,c.la]
+  );
+
+  if(seg && seg.length>1){
+    const latlngs=seg.map(p=>[p[1],p[0]]);
+    L.polyline(latlngs,{
+      color:"blue",
+      weight:4
+    }).addTo(map);
+  }else{
+    // fallback
+    L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
+      dashArray:"6,6"
+    }).addTo(map);
+  }
 }
 
 // ===== 次予定 =====
