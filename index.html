@@ -88,40 +88,6 @@ function loadData(){
 const data=loadData();
 let di=0, openIndex=null;
 
-// ===== LINE CACHE =====
-const lineCache={};
-
-async function loadLine(name){
-  if(!name){
-    log("❌ line missing");
-    return null;
-  }
-
-  if(lineCache[name]) return lineCache[name];
-
-  try{
-    log("📥 load:",name);
-    const res=await fetch(`./geojson/${name}.geojson`);
-
-    if(!res.ok){
-      log("❌ geojson not found:",name);
-      return null;
-    }
-
-    const geo=await res.json();
-    lineCache[name]=geo;
-    return geo;
-
-  }catch(e){
-    log("❌ load error:",name,e);
-    return null;
-  }
-}
-
-const data=loadData();
-let di=0;
-let openIndex=null;
-
 // ===== 路線カラー =====
 const lineColor={
   "東日本旅客鉄道中央線":"orange",
