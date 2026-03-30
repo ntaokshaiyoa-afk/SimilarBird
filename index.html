@@ -22,6 +22,12 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 .transfer{color:red;font-weight:bold;}
 .next{position:fixed;bottom:0;width:100%;background:#007aff;color:white;padding:10px;}
 .spacer{height:60px;}
+#debug{
+  position:fixed;bottom:0;
+  width:100%;max-height:120px;
+  overflow:auto;background:#000;color:#0f0;
+  font-size:10px;
+}
 </style>
 </head>
 
@@ -34,58 +40,26 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 <div id="debug"></div>
 
 <script>
+// ===== デバッグ =====
 function log(...a){
   console.log(...a);
-  debug.innerText += a.join(" ")+"\\n";
+  debug.innerText += a.join(" ")+"\n";
 }
 
-const data=JSON.parse(LZString.decompressFromEncodedURIComponent(
-  new URLSearchParams(location.search).get("d")
-));
-
-const map=L.map("map").setView([35,139],10);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-const lineCache={};
-
-async function loadLine(name){
-  log("load:",name);
-  const res=await fetch(`./geojson/${name}.geojson`);
-  log("status:",res.status);
-  return res.json();
-}
-
-(async()=>{
-  const c=data.d[0].c;
-
-  for(let i=1;i<c.length;i++){
-    const prev=c[i-1], cur=c[i];
-
-    log("draw:", cur.line);
-
-    const geo=await loadLine(cur.line);
-
-    const coords=geo.features[0].geometry.coordinates;
-
-    const latlngs=coords.map(p=>[p[1],p[0]]);
-
-    L.polyline(latlngs,{color:"blue"}).addTo(map);
-  }
-})();
-</script>
-<script>
 // ===== データ =====
 function loadData(){
   try{
     const raw=new URLSearchParams(location.search).get("d");
     return JSON.parse(LZString.decompressFromEncodedURIComponent(raw));
-  }catch{
+  }catch(e){
+    log("load error", e);
     return {d:[{dt:"サンプル",c:[]}]};
   }
 }
 
 const data=loadData();
-let di=0, openIndex=null;
+let di=0;
+let openIndex=null;
 
 // ===== 路線カラー =====
 const lineColor={
@@ -97,22 +71,32 @@ const lineColor={
 // ===== 路線キャッシュ =====
 const lineCache={};
 
-async function loadLine_orig(name){
+async function loadLine(name){
+  log("loadLine:", name);
+
   if(lineCache[name]) return lineCache[name];
+
   try{
     const res=await fetch(`./geojson/${name}.geojson`);
+    log("status:", res.status);
+
+    if(!res.ok) return null;
+
     const geo=await res.json();
     lineCache[name]=geo;
     return geo;
-  }catch{
+  }catch(e){
+    log("load error:", e);
     return null;
   }
 }
 
+// ===== 距離 =====
 function dist(a,b){
   return (a[0]-b[0])**2+(a[1]-b[1])**2;
 }
 
+// ===== セグメント抽出 =====
 function extractSegment(geo, from, to){
   let bestLine=null, bestScore=Infinity;
 
@@ -121,7 +105,7 @@ function extractSegment(geo, from, to){
 
     if(f.geometry.type==="LineString"){
       lines=[f.geometry.coordinates];
-    }else{
+    }else if(f.geometry.type==="MultiLineString"){
       lines=f.geometry.coordinates;
     }
 
@@ -132,6 +116,7 @@ function extractSegment(geo, from, to){
       line.forEach((p,i)=>{
         const d1=dist(p,from);
         const d2=dist(p,to);
+
         if(d1<minFrom){minFrom=d1;idxFrom=i;}
         if(d2<minTo){minTo=d2;idxTo=i;}
       });
@@ -150,10 +135,12 @@ function extractSegment(geo, from, to){
     });
   });
 
+  log("segment length:", bestLine?.length);
+
   return bestLine;
 }
 
-// ===== 描画 =====
+// ===== タブ =====
 function renderTabs(){
   tabs.innerHTML="";
   data.d.forEach((d,i)=>{
@@ -164,6 +151,7 @@ function renderTabs(){
   });
 }
 
+// ===== 描画 =====
 function render(){
   renderTabs();
   list.innerHTML="";
@@ -179,7 +167,7 @@ function render(){
     el.innerHTML=`
       <div class="header">
         <div>
-          ${c.s}-${c.e}<br>
+          ${c.s||""}-${c.e||""}<br>
           ${c.tt||""}
           ${transfer?'<div class="transfer">🔁 乗換</div>':""}
         </div>
@@ -218,14 +206,20 @@ async function initMap(di,i,c){
   if(!prev || !prev.la) return;
 
   if(c.m!=="train"){
+    log("draw walk/car");
     L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
       dashArray:"6,6"
     }).addTo(map);
     return;
   }
 
+  log("train line:", c.line);
+
   const geo=await loadLine(c.line);
-  if(!geo) return;
+  if(!geo){
+    log("geo not found");
+    return;
+  }
 
   const seg=extractSegment(geo,[prev.lo,prev.la],[c.lo,c.la]);
 
@@ -233,9 +227,17 @@ async function initMap(di,i,c){
     const latlngs=seg.map(p=>[p[1],p[0]]);
     const color=lineColor[c.line] || "blue";
 
+    log("draw rail", color);
+
     L.polyline(latlngs,{
       color:color,
       weight:4
+    }).addTo(map);
+  }else{
+    log("fallback line");
+
+    L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
+      color:"red"
     }).addTo(map);
   }
 }
@@ -245,6 +247,7 @@ function updateNext(){
   next.innerText="次の予定";
 }
 
+// ===== 初期 =====
 render();
 </script>
 
