@@ -97,7 +97,7 @@ const lineColor={
 // ===== 路線キャッシュ =====
 const lineCache={};
 
-async function loadLine(name){
+async function loadLine_orig(name){
   if(lineCache[name]) return lineCache[name];
   try{
     const res=await fetch(`./geojson/${name}.geojson`);
