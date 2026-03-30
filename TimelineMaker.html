@@ -15,8 +15,13 @@
 <style>
 body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 .top{position:sticky;top:0;background:white;padding:10px;z-index:10;}
-.card{background:white;margin:10px;padding:12px;border-radius:12px;}
-#editor{position:fixed;top:5%;left:5%;right:5%;background:white;padding:12px;border-radius:12px;display:none;z-index:100;}
+.card{
+  background:white;
+  margin:10px auto;
+  padding:12px;
+  border-radius:12px;
+  max-width:500px;
+}#editor{position:fixed;top:5%;left:5%;right:5%;background:white;padding:12px;border-radius:12px;display:none;z-index:100;}
 #map{height:200px;margin-top:10px;}
 .md{background:#fafafa;padding:8px;margin-top:6px;border-radius:8px;}
 #debug{position:fixed;bottom:0;background:#000;color:#0f0;font-size:10px;width:100%;max-height:120px;overflow:auto;}
@@ -29,6 +34,7 @@ button{margin:2px;}
 <div class="top">
 <button onclick="newData()">🆕</button>
 <button onclick="addDay()">＋日</button>
+<button onclick="deleteDay()">－日</button>
 <button onclick="addCard('a')">＋観光</button>
 <button onclick="addCard('m')">＋移動</button>
 
@@ -115,13 +121,18 @@ function render(){
   cards.forEach((c,i)=>{
     const el=document.createElement("div");
     el.className="card";
+
     el.innerHTML=`
       <b>${c.s||""}-${c.e||""}</b><br>
       ${c.tt||""}
       <div>${c.station||""}</div>
-      ${c.cm?`<div class="md">${marked.parse(c.cm)}</div>`:""}
+
+      <div style="margin-top:8px;">
+        <button onclick="edit(${i});event.stopPropagation()">編集</button>
+        <button onclick="deleteCard(${i});event.stopPropagation()">削除</button>
+      </div>
     `;
-    el.onclick=()=>edit(i);
+
     list.appendChild(el);
   });
 
@@ -162,6 +173,8 @@ function addCard(type){
 function edit(i){
   ei=i;
   const c=data.d[di].c[i];
+
+  if(!c) return;
 
   editor.style.display="block";
 
@@ -260,10 +273,23 @@ function saveEdit(){
 }
 
 // ===== 削除 =====
-function deleteCard(){
-  if(!confirm("削除")) return;
-  data.d[di].c.splice(ei,1);
-  editor.style.display="none";
+function deleteDay(){
+  if(data.d.length<=1){
+    alert("最後の1日は削除できません");
+    return;
+  }
+
+  if(!confirm("この日を削除しますか？")) return;
+
+  data.d.splice(di,1);
+  di=Math.max(0,di-1);
+  render();
+}
+
+function deleteCard(i){
+  if(!confirm("削除しますか？")) return;
+
+  data.d[di].c.splice(i,1);
   render();
 }
 
@@ -272,12 +298,23 @@ let url="";
 function generate(){
   const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
   url="https://ntaokshaiyoa-afk.github.io/SimilarBird/?d="+d;
+
   out.innerText=url;
+  log("URL生成:",url);
 }
 
-function copy(){
-  navigator.clipboard.writeText(url);
-  alert("コピー");
+async function copy(){
+  if(!url){
+    generate();
+  }
+
+  try{
+    await navigator.clipboard.writeText(url);
+    alert("コピーしました");
+  }catch(e){
+    alert("コピー失敗");
+    log("copy error:",e);
+  }
 }
 
 function makeQR(){
