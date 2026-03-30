@@ -102,21 +102,35 @@ const lineColor={
 const lineCache={};
 
 async function loadLine(name){
-  if(!name) return null;
+  if(!name){
+    log("line name missing");
+    return null;
+  }
 
   if(lineCache[name]) return lineCache[name];
 
   try{
-    const res=await fetch(`./geojson/${name}.geojson`);
-    log("load:",name,res.status);
+    const url = `./geojson/${encodeURIComponent(name)}.geojson`;
+    log("fetch:", url);
 
-    if(!res.ok) return null;
+    const res = await fetch(url);
 
-    const geo=await res.json();
-    lineCache[name]=geo;
+    log("status:", res.status);
+
+    if(!res.ok){
+      log("fetch failed");
+      return null;
+    }
+
+    const geo = await res.json();
+
+    log("geo loaded:", geo.features?.length);
+
+    lineCache[name] = geo;
     return geo;
+
   }catch(e){
-    log("geo error",e);
+    log("error:", e);
     return null;
   }
 }
