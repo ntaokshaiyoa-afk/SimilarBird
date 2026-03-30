@@ -284,6 +284,39 @@ function makeQR(){
 // ===== 初期描画 =====
 render();
 </script>
+<script>
+// ===== 路線選択 =====
+function chooseLine(prev, station){
+  if(!station.lines) return null;
 
+  if(prev && prev.line){
+    const match = station.lines.find(l=>l===prev.line);
+    if(match) return match;
+  }
+
+  return station.lines[0];
+}
+
+// ===== 地図クリック =====
+map.on("click",e=>{
+  const lat=e.latlng.lat;
+  const lng=e.latlng.lng;
+
+  const st=nearest(lat,lng);
+
+  const card=data.d[di].c[ei];
+  const prev=data.d[di].c[ei-1];
+
+  card.la=st.lat;
+  card.lo=st.lng;
+  card.station=st.name;
+
+  card.line = chooseLine(prev, st);
+
+  stationInfo.innerText =
+    `駅:${st.name}\n候補:${st.lines.join(",")}\n選択:${card.line}`;
+});
+</script>
+  
 </body>
 </html>
