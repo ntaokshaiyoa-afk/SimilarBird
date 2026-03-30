@@ -192,8 +192,17 @@ function initMap(c){
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
+  if(c.la){
+    marker=L.marker([c.la,c.lo]).addTo(map);
+  }
+
   map.on("click",e=>{
     const st=nearest(e.latlng.lat,e.latlng.lng);
+
+    if(!st){
+      stationInfo.innerText="駅見つからず";
+      return;
+    }
 
     if(marker) marker.remove();
     marker=L.marker([st.lat,st.lng]).addTo(map);
@@ -204,7 +213,12 @@ function initMap(c){
     card.la=st.lat;
     card.lo=st.lng;
     card.station=st.name;
-    card.line=chooseLine(prev,st);
+
+    // ★ここが重要
+    card.line = chooseLine(prev, st);
+
+    log("SET station:", st.name);
+    log("SET line:", card.line);
 
     stationInfo.innerText=`${st.name} / ${card.line}`;
   });
@@ -223,11 +237,23 @@ function nearest(lat,lng){
 // ===== 保存 =====
 function saveEdit(){
   const c=data.d[di].c[ei];
+
   c.tt=title.value;
   c.s=start.value;
   c.e=end.value;
   c.m=mode.value;
   c.cm=comment.value;
+
+  // ★ line補完（超重要）
+  if(c.m==="train" && !c.line){
+    const st = stations.find(s=>s.name===c.station);
+    if(st && st.lines && st.lines.length>0){
+      c.line = st.lines[0];
+      log("補完 line:", c.line);
+    }else{
+      log("❌ line補完失敗");
+    }
+  }
 
   editor.style.display="none";
   render();
