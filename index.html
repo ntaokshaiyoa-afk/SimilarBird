@@ -109,7 +109,7 @@ async function loadLine(name){
 
   try{
     log("📥 load:",name);
-    const res=await fetch(`./geojson/${name}.geojson`);
+    const res=await fetch(`./lines/${name}.geojson`);
 
     if(!res.ok){
       log("❌ geojson not found:",name);
