@@ -12,42 +12,15 @@
 
 <style>
 body{margin:0;background:#f5f5f5;font-family:sans-serif;}
-
-.tabs{
-  position:sticky;top:0;background:white;
-  padding:10px;z-index:1000;
-}
-
-.card{
-  background:white;margin:10px;border-radius:12px;
-  overflow:hidden;
-}
-
-.header{
-  padding:12px;
-  display:flex;justify-content:space-between;
-  align-items:center;
-  cursor:pointer;
-}
-
-.detail{
-  display:none;
-  padding:10px;
-}
-
+.tabs{position:sticky;top:0;background:white;padding:10px;z-index:1000;}
+.card{background:white;margin:10px;border-radius:12px;overflow:hidden;}
+.header{padding:12px;display:flex;justify-content:space-between;cursor:pointer;}
+.detail{display:none;padding:10px;}
 .card.open .detail{display:block;}
-
-.map{height:160px;margin-top:10px;z-index:0;}
-
+.map{height:160px;margin-top:10px;}
 .md{background:#fafafa;padding:8px;border-radius:8px;}
-
-.next{
-  position:fixed;bottom:0;width:100%;
-  background:#007aff;color:white;
-  padding:10px;font-weight:bold;
-  z-index:1000;
-}
-
+.transfer{color:red;font-weight:bold;}
+.next{position:fixed;bottom:0;width:100%;background:#007aff;color:white;padding:10px;}
 .spacer{height:60px;}
 </style>
 </head>
@@ -59,44 +32,87 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 <div class="spacer"></div>
 <div id="next" class="next"></div>
 
-
-<div id="debug" style="
-position:fixed;
-right:0;bottom:60px;
-width:100%;
-max-height:150px;
-overflow:auto;
-background:#000;
-color:#0f0;
-font-size:10px;
-z-index:2000;
-"></div>
-  
 <script>
-// ===== 安全ロード =====
+// ===== データ =====
 function loadData(){
   try{
     const raw=new URLSearchParams(location.search).get("d");
-    const json=LZString.decompressFromEncodedURIComponent(raw);
-    return JSON.parse(json);
+    return JSON.parse(LZString.decompressFromEncodedURIComponent(raw));
   }catch{
     return {d:[{dt:"サンプル",c:[]}]};
   }
 }
 
 const data=loadData();
-let di=0;
-let openIndex=null;
+let di=0, openIndex=null;
 
-// ===== アイコン =====
-function icon(c){
-  if(c.m==="car") return "🚗";
-  if(c.m==="train") return "🚃";
-  if(c.m==="walk") return "🚶";
-  return "🎯";
+// ===== 路線カラー =====
+const lineColor={
+  "東日本旅客鉄道中央線":"orange",
+  "東日本旅客鉄道武蔵野線":"red",
+  "東日本旅客鉄道青梅線":"green"
+};
+
+// ===== 路線キャッシュ =====
+const lineCache={};
+
+async function loadLine(name){
+  if(lineCache[name]) return lineCache[name];
+  try{
+    const res=await fetch(`./geojson/${name}.geojson`);
+    const geo=await res.json();
+    lineCache[name]=geo;
+    return geo;
+  }catch{
+    return null;
+  }
 }
 
-// ===== タブ =====
+function dist(a,b){
+  return (a[0]-b[0])**2+(a[1]-b[1])**2;
+}
+
+function extractSegment(geo, from, to){
+  let bestLine=null, bestScore=Infinity;
+
+  geo.features.forEach(f=>{
+    let lines=[];
+
+    if(f.geometry.type==="LineString"){
+      lines=[f.geometry.coordinates];
+    }else{
+      lines=f.geometry.coordinates;
+    }
+
+    lines.forEach(line=>{
+      let minFrom=Infinity,minTo=Infinity;
+      let idxFrom=0,idxTo=0;
+
+      line.forEach((p,i)=>{
+        const d1=dist(p,from);
+        const d2=dist(p,to);
+        if(d1<minFrom){minFrom=d1;idxFrom=i;}
+        if(d2<minTo){minTo=d2;idxTo=i;}
+      });
+
+      const score=minFrom+minTo;
+
+      if(score<bestScore){
+        bestScore=score;
+
+        if(idxFrom<idxTo){
+          bestLine=line.slice(idxFrom,idxTo+1);
+        }else{
+          bestLine=line.slice(idxTo,idxFrom+1).reverse();
+        }
+      }
+    });
+  });
+
+  return bestLine;
+}
+
+// ===== 描画 =====
 function renderTabs(){
   tabs.innerHTML="";
   data.d.forEach((d,i)=>{
@@ -107,20 +123,24 @@ function renderTabs(){
   });
 }
 
-// ===== 描画 =====
 function render(){
   renderTabs();
   list.innerHTML="";
 
   data.d[di].c.forEach((c,i)=>{
+    const prev=data.d[di].c[i-1];
+
+    const transfer = prev && prev.line && c.line && prev.line!==c.line;
+
     const el=document.createElement("div");
     el.className="card"+(i===openIndex?" open":"");
 
     el.innerHTML=`
       <div class="header">
         <div>
-          ${icon(c)} ${c.s}-${c.e}<br>
+          ${c.s}-${c.e}<br>
           ${c.tt||""}
+          ${transfer?'<div class="transfer">🔁 乗換</div>':""}
         </div>
         <div>${c.station||""}</div>
       </div>
@@ -146,185 +166,44 @@ function render(){
   updateNext();
 }
 
-  // ===== 路線キャッシュ =====
-const lineCache={};
-
-async function loadLine(name){
-  log("loadLine:", name);
-
-  if(lineCache[name]){
-    log("cache hit");
-    return lineCache[name];
-  }
-
-  try{
-    const url=`./geojson/${name}.geojson`;
-    log("fetch:", url);
-
-    const res=await fetch(url);
-
-    if(!res.ok){
-      log("fetch failed:", res.status);
-      return null;
-    }
-
-    const geo=await res.json();
-    log("geo loaded features:", geo.features?.length);
-
-    lineCache[name]=geo;
-    return geo;
-  }catch(e){
-    log("error:", e);
-    return null;
-  }
-}
-
-// 距離
-function dist(a,b){
-  return (a[0]-b[0])**2+(a[1]-b[1])**2;
-}
-
-// ★ 最重要：正しいセグメント抽出
-function extractSegment(geo, from, to){
-  log("extract start", from, to);
-
-  let bestLine=null;
-  let bestScore=Infinity;
-
-  geo.features.forEach((f,fi)=>{
-    let lines=[];
-
-    if(f.geometry.type==="LineString"){
-      lines=[f.geometry.coordinates];
-    }else if(f.geometry.type==="MultiLineString"){
-      lines=f.geometry.coordinates;
-    }
-
-    log("feature", fi, "lines:", lines.length);
-
-    lines.forEach((line,li)=>{
-      let minFrom=Infinity, minTo=Infinity;
-      let idxFrom=0, idxTo=0;
-
-      line.forEach((p,i)=>{
-        const d1=dist(p,from);
-        const d2=dist(p,to);
-
-        if(d1<minFrom){minFrom=d1;idxFrom=i;}
-        if(d2<minTo){minTo=d2;idxTo=i;}
-      });
-
-      log("line", li, "idxFrom:", idxFrom, "idxTo:", idxTo);
-
-      const score=minFrom+minTo;
-
-      if(score<bestScore){
-        bestScore=score;
-
-        if(idxFrom<idxTo){
-          bestLine=line.slice(idxFrom, idxTo+1);
-        }else{
-          bestLine=line.slice(idxTo, idxFrom+1).reverse();
-        }
-      }
-    });
-  });
-
-  log("bestScore:", bestScore);
-  log("bestLine length:", bestLine?.length);
-
-  return bestLine;
-}
-
 // ===== 地図 =====
 async function initMap(di,i,c){
-  log("=== initMap ===");
-  log("card:", i, c);
-
   const map=L.map(`m${di}_${i}`).setView([c.la,c.lo],13);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
   L.marker([c.la,c.lo]).addTo(map);
 
   const prev=data.d[di].c[i-1];
-
-  if(!prev || !prev.la){
-    log("prev missing");
-    return;
-  }
-
-  log("prev:", prev);
+  if(!prev || !prev.la) return;
 
   if(c.m!=="train"){
-    log("mode:", c.m, "→ 直線");
     L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
       dashArray:"6,6"
     }).addTo(map);
     return;
   }
 
-  if(!c.line){
-    log("line missing");
-    return;
-  }
-
   const geo=await loadLine(c.line);
+  if(!geo) return;
 
-  if(!geo){
-    log("geo not loaded");
-    return;
-  }
-
-  const seg=extractSegment(
-    geo,
-    [prev.lo,prev.la],
-    [c.lo,c.la]
-  );
+  const seg=extractSegment(geo,[prev.lo,prev.la],[c.lo,c.la]);
 
   if(seg && seg.length>1){
-    log("draw rail:", seg.length);
-
     const latlngs=seg.map(p=>[p[1],p[0]]);
-    L.polyline(latlngs,{
-      color:"blue",
-      weight:4
-    }).addTo(map);
-  }else{
-    log("fallback line");
+    const color=lineColor[c.line] || "blue";
 
-    L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
-      color:"red"
+    L.polyline(latlngs,{
+      color:color,
+      weight:4
     }).addTo(map);
   }
 }
 
 // ===== 次予定 =====
 function updateNext(){
-  const now=new Date();
-  const nowMin=now.getHours()*60+now.getMinutes();
-
-  let next=null;
-
-  data.d[di].c.forEach(c=>{
-    const [h,m]=c.s.split(":");
-    const t=h*60+ +m;
-    if(t>=nowMin && !next) next=c;
-  });
-
-  nextEl.innerText=next
-    ? `次: ${next.s} ${next.tt||next.m}`
-    : "予定終了";
+  next.innerText="次の予定";
 }
 
-function log(...args){
-  console.log(...args);
-  const d=document.getElementById("debug");
-  d.innerText += args.join(" ")+"\n";
-}
-
-const nextEl=document.getElementById("next");
-
-// ===== 初期 =====
 render();
 </script>
 
