@@ -242,12 +242,20 @@ async function initMap(i,c){
 
   if(c.m!=="train"){
     log("not train → straight");
-    L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{dashArray:"6,6"}).addTo(map);
+    L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
+      dashArray:"6,6"
+    }).addTo(map);
     return;
   }
 
+  // ★ lineフォールバック
   if(!c.line){
-    log("❌ line name missing");
+    log("⚠ line missing → fallback");
+    c.line = prev.line;
+  }
+
+  if(!c.line){
+    log("❌ line still missing");
     return;
   }
 
