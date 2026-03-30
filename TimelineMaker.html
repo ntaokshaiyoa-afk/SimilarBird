@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<!-- libs -->
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
@@ -15,89 +14,49 @@
 
 <style>
 body{margin:0;background:#f5f5f5;font-family:sans-serif;}
-.top{position:sticky;top:0;background:white;padding:10px;z-index:10;}
+.top{position:sticky;top:0;background:white;padding:10px;}
 .card{background:white;margin:10px;padding:12px;border-radius:12px;}
-.small{color:#666;font-size:12px;}
-.md{background:#fafafa;padding:8px;margin-top:8px;border-radius:8px;}
-#editor{
-  position:fixed;top:5%;left:5%;right:5%;
-  background:white;padding:12px;border-radius:12px;
-  display:none;z-index:100;
-}
+#editor{position:fixed;top:5%;left:5%;right:5%;background:white;padding:12px;border-radius:12px;display:none;}
 #map{height:200px;margin-top:10px;}
-textarea{width:100%;height:90px;}
-button{margin:4px;}
+#debug{position:fixed;bottom:0;background:#000;color:#0f0;font-size:10px;width:100%;max-height:120px;overflow:auto;}
 </style>
 </head>
 
 <body>
 
 <div class="top">
-  <button onclick="newData()">🆕 新規</button>
-  <button onclick="addDay()">＋日</button>
-  <button onclick="addCard('a')">＋観光</button>
-  <button onclick="addCard('m')">＋移動</button>
-
-  <button onclick="generate()">URL</button>
-  <button onclick="copy()">コピー</button>
-  <button onclick="makeQR()">QR</button>
-
-  <input id="loadUrl" placeholder="URL貼り付け">
-  <button onclick="loadFromURL()">読込</button>
+<button onclick="addCard('m')">＋移動</button>
+<button onclick="generate()">URL</button>
 </div>
 
-<div id="tabs"></div>
 <div id="list"></div>
 
-<!-- 編集モーダル -->
 <div id="editor">
-  <h3>カード編集</h3>
-
-  <input id="title" placeholder="タイトル"><br>
-  <input id="start" placeholder="09:00">
-  <input id="end" placeholder="10:00"><br>
-
-  <select id="mode">
-    <option value="car">🚗 車</option>
-    <option value="train">🚃 電車</option>
-    <option value="walk">🚶 徒歩</option>
-    <option value="a">🎯 観光</option>
-  </select>
-
-  <textarea id="comment" placeholder="Markdown（チェックリスト可）"></textarea>
-
-  <div class="small">地図クリックで位置指定（最寄駅にスナップ）</div>
-  <div id="map"></div>
-
-  <div id="stationInfo" class="small"></div>
-
-  <button onclick="saveEdit()">保存</button>
-  <button onclick="deleteCard()">削除</button>
+<input id="title">
+<div id="map"></div>
+<div id="stationInfo"></div>
+<button onclick="saveEdit()">保存</button>
 </div>
 
-<div id="out"></div>
-<canvas id="qr"></canvas>
+<div id="debug"></div>
 
 <script>
+// ===== ログ =====
+function log(...a){
+  console.log(...a);
+  debug.innerText += a.join(" ")+"\\n";
+}
+
 // ===== 状態 =====
-let data=loadSafe();
+let data={d:[{dt:"1日目",c:[]}]};
 let di=0, ei=null;
 let map, marker;
 let stations=[];
 
-// ===== 駅ロード =====
-fetch("./stations.json").then(r=>r.json()).then(s=>stations=s);
-
-// ===== 安全ロード =====
-function loadSafe(){
-  try{
-    const d=JSON.parse(localStorage.getItem("t"));
-    if(!d||!d.d) throw 0;
-    return d;
-  }catch{
-    return {d:[{dt:"1日目",c:[]}]};
-  }
-}
+fetch("./stations.json").then(r=>r.json()).then(s=>{
+  stations=s;
+  log("stations loaded:", stations.length);
+});
 
 // ===== 最寄駅 =====
 function nearest(lat,lng){
@@ -109,71 +68,32 @@ function nearest(lat,lng){
   return best;
 }
 
-// ===== タブ =====
-function renderTabs(){
-  tabs.innerHTML="";
-  data.d.forEach((d,i)=>{
-    const b=document.createElement("button");
-    b.innerText=d.dt;
-    b.onclick=()=>{di=i;render();}
-    tabs.appendChild(b);
-  });
+// ===== 路線選択 =====
+function chooseLine(prev, st){
+  if(!st.lines) return null;
+  if(prev && prev.line){
+    const m=st.lines.find(l=>l===prev.line);
+    if(m){ log("match line:",m); return m; }
+  }
+  log("fallback line:", st.lines[0]);
+  return st.lines[0];
 }
 
 // ===== 描画 =====
 function render(){
-  renderTabs();
   list.innerHTML="";
-
-  const cards=data.d[di].c;
-
-  cards.forEach((c,i)=>{
+  data.d[di].c.forEach((c,i)=>{
     const el=document.createElement("div");
     el.className="card";
-
-    el.innerHTML=`
-      <b>${c.s}-${c.e}</b><br>
-      ${c.tt||""}
-      <div class="small">${c.station||"未設定"}</div>
-      ${c.cm?`<div class="md">${marked.parse(c.cm)}</div>`:""}
-    `;
-
+    el.innerText=c.station||"未設定";
     el.onclick=()=>edit(i);
-
     list.appendChild(el);
   });
-
-  new Sortable(list,{
-    animation:150,
-    onEnd:e=>{
-      const cards=data.d[di].c;
-      const item=cards.splice(e.oldIndex,1)[0];
-      cards.splice(e.newIndex,0,item);
-      save();
-    }
-  });
-
-  save();
-}
-
-// ===== 新規 =====
-function newData(){
-  if(!confirm("全部消えます")) return;
-  data={d:[{dt:"1日目",c:[]}]};
-  render();
 }
 
 // ===== 追加 =====
-function addDay(){
-  data.d.push({dt:`${data.d.length+1}日目`,c:[]});
-  di=data.d.length-1;
-  render();
-}
-
-function addCard(type){
-  const c={t:type,s:"09:00",e:"10:00"};
-  if(type==="m") c.m="car";
-  data.d[di].c.push(c);
+function addCard(){
+  data.d[di].c.push({});
   render();
 }
 
@@ -181,14 +101,7 @@ function addCard(type){
 function edit(i){
   ei=i;
   const c=data.d[di].c[i];
-
   editor.style.display="block";
-
-  title.value=c.tt||"";
-  start.value=c.s;
-  end.value=c.e;
-  mode.value=c.m||c.t||"car";
-  comment.value=c.cm||"";
 
   initMap(c);
 }
@@ -197,126 +110,44 @@ function edit(i){
 function initMap(c){
   if(map) map.remove();
 
-  map=L.map("map").setView([c.la||35,c.lo||139],13);
+  map=L.map("map").setView([35,139],13);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-  if(c.la){
-    marker=L.marker([c.la,c.lo]).addTo(map);
-  }
-
   map.on("click",e=>{
-    const lat=e.latlng.lat;
-    const lng=e.latlng.lng;
-
-    const st=nearest(lat,lng);
+    const st=nearest(e.latlng.lat,e.latlng.lng);
+    log("clicked station:", st.name);
 
     if(marker) marker.remove();
     marker=L.marker([st.lat,st.lng]).addTo(map);
 
     const card=data.d[di].c[ei];
+    const prev=data.d[di].c[ei-1];
+
     card.la=st.lat;
     card.lo=st.lng;
     card.station=st.name;
+    card.line=chooseLine(prev,st);
 
-    stationInfo.innerText=`駅: ${st.name}`;
+    stationInfo.innerText=`${st.name} / ${card.line}`;
   });
 }
 
 // ===== 保存 =====
 function saveEdit(){
-  const c=data.d[di].c[ei];
-
-  c.tt=title.value;
-  c.s=start.value;
-  c.e=end.value;
-  c.m=mode.value;
-  c.cm=comment.value;
-
   editor.style.display="none";
   render();
-}
-
-// ===== 削除 =====
-function deleteCard(){
-  if(!confirm("削除?")) return;
-  data.d[di].c.splice(ei,1);
-  editor.style.display="none";
-  render();
-}
-
-// ===== 保存 =====
-function save(){
-  localStorage.setItem("t",JSON.stringify(data));
 }
 
 // ===== URL =====
-let url="";
 function generate(){
   const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
-  url="https://ntaokshaiyoa-afk.github.io/SimilarBird/?d="+d;
-  out.innerText=url;
+  const url="https://ntaokshaiyoa-afk.github.io/SimilarBird/?d="+d;
+  log("URL:", url);
 }
 
-// ===== 読込 =====
-function loadFromURL(){
-  try{
-    const u=document.getElementById("loadUrl").value;
-    const d=new URL(u).searchParams.get("d");
-    data=JSON.parse(LZString.decompressFromEncodedURIComponent(d));
-    render();
-  }catch{
-    alert("失敗");
-  }
-}
-
-// ===== コピー =====
-function copy(){
-  navigator.clipboard.writeText(url);
-  alert("コピーOK");
-}
-
-// ===== QR =====
-function makeQR(){
-  QRCode.toCanvas(document.querySelector("canvas"),url);
-}
-
-// ===== 初期描画 =====
 render();
 </script>
-<script>
-// ===== 路線選択 =====
-function chooseLine(prev, station){
-  if(!station.lines) return null;
 
-  if(prev && prev.line){
-    const match = station.lines.find(l=>l===prev.line);
-    if(match) return match;
-  }
-
-  return station.lines[0];
-}
-
-// ===== 地図クリック =====
-map.on("click",e=>{
-  const lat=e.latlng.lat;
-  const lng=e.latlng.lng;
-
-  const st=nearest(lat,lng);
-
-  const card=data.d[di].c[ei];
-  const prev=data.d[di].c[ei-1];
-
-  card.la=st.lat;
-  card.lo=st.lng;
-  card.station=st.name;
-
-  card.line = chooseLine(prev, st);
-
-  stationInfo.innerText =
-    `駅:${st.name}\n候補:${st.lines.join(",")}\n選択:${card.line}`;
-});
-</script>
-  
 </body>
 </html>
