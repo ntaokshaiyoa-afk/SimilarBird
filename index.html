@@ -12,21 +12,50 @@
 
 <style>
 body{margin:0;background:#f5f5f5;font-family:sans-serif;}
-.tabs{position:sticky;top:0;background:white;padding:10px;z-index:1000;}
-.card{background:white;margin:10px;border-radius:12px;overflow:hidden;}
-.header{padding:12px;display:flex;justify-content:space-between;cursor:pointer;}
+
+.tabs{
+  position:sticky;top:0;background:white;
+  padding:10px;z-index:1000;
+}
+
+.card{
+  background:white;margin:10px;border-radius:12px;
+  overflow:hidden;
+}
+
+.header{
+  padding:12px;
+  display:flex;justify-content:space-between;
+  cursor:pointer;
+}
+
 .detail{display:none;padding:10px;}
 .card.open .detail{display:block;}
-.map{height:160px;margin-top:10px;}
+
+.map{height:160px;margin-top:10px;z-index:0;}
+
 .md{background:#fafafa;padding:8px;border-radius:8px;}
+
 .transfer{color:red;font-weight:bold;}
-.next{position:fixed;bottom:0;width:100%;background:#007aff;color:white;padding:10px;}
+
+.next{
+  position:fixed;bottom:0;width:100%;
+  background:#007aff;color:white;
+  padding:10px;z-index:1000;
+}
+
 .spacer{height:60px;}
+
 #debug{
-  position:fixed;bottom:0;
-  width:100%;max-height:120px;
-  overflow:auto;background:#000;color:#0f0;
+  position:fixed;
+  bottom:0;
+  width:100%;
+  max-height:120px;
+  overflow:auto;
+  background:#000;
+  color:#0f0;
   font-size:10px;
+  z-index:2000;
 }
 </style>
 </head>
@@ -40,10 +69,10 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 <div id="debug"></div>
 
 <script>
-// ===== デバッグ =====
+// ===== ログ =====
 function log(...a){
   console.log(...a);
-  debug.innerText += a.join(" ")+"\n";
+  debug.innerText += a.join(" ") + "\n";
 }
 
 // ===== データ =====
@@ -52,7 +81,7 @@ function loadData(){
     const raw=new URLSearchParams(location.search).get("d");
     return JSON.parse(LZString.decompressFromEncodedURIComponent(raw));
   }catch(e){
-    log("load error", e);
+    log("load error",e);
     return {d:[{dt:"サンプル",c:[]}]};
   }
 }
@@ -65,20 +94,21 @@ let openIndex=null;
 const lineColor={
   "東日本旅客鉄道中央線":"orange",
   "東日本旅客鉄道武蔵野線":"red",
-  "東日本旅客鉄道青梅線":"green"
+  "東日本旅客鉄道青梅線":"green",
+  "東日本旅客鉄道京葉線":"blue"
 };
 
 // ===== 路線キャッシュ =====
 const lineCache={};
 
 async function loadLine(name){
-  log("loadLine:", name);
+  if(!name) return null;
 
   if(lineCache[name]) return lineCache[name];
 
   try{
     const res=await fetch(`./geojson/${name}.geojson`);
-    log("status:", res.status);
+    log("load:",name,res.status);
 
     if(!res.ok) return null;
 
@@ -86,7 +116,7 @@ async function loadLine(name){
     lineCache[name]=geo;
     return geo;
   }catch(e){
-    log("load error:", e);
+    log("geo error",e);
     return null;
   }
 }
@@ -96,9 +126,9 @@ function dist(a,b){
   return (a[0]-b[0])**2+(a[1]-b[1])**2;
 }
 
-// ===== セグメント抽出 =====
+// ===== セグメント抽出（強化版） =====
 function extractSegment(geo, from, to){
-  let bestLine=null, bestScore=Infinity;
+  let best=null, bestScore=Infinity;
 
   geo.features.forEach(f=>{
     let lines=[];
@@ -110,34 +140,32 @@ function extractSegment(geo, from, to){
     }
 
     lines.forEach(line=>{
-      let minFrom=Infinity,minTo=Infinity;
-      let idxFrom=0,idxTo=0;
+      let i1=0,i2=0,d1=Infinity,d2=Infinity;
 
       line.forEach((p,i)=>{
-        const d1=dist(p,from);
-        const d2=dist(p,to);
+        const df=dist(p,from);
+        const dt=dist(p,to);
 
-        if(d1<minFrom){minFrom=d1;idxFrom=i;}
-        if(d2<minTo){minTo=d2;idxTo=i;}
+        if(df<d1){d1=df;i1=i;}
+        if(dt<d2){d2=dt;i2=i;}
       });
 
-      const score=minFrom+minTo;
+      const score=d1+d2;
 
       if(score<bestScore){
         bestScore=score;
 
-        if(idxFrom<idxTo){
-          bestLine=line.slice(idxFrom,idxTo+1);
+        if(i1<i2){
+          best=line.slice(i1,i2+1);
         }else{
-          bestLine=line.slice(idxTo,idxFrom+1).reverse();
+          best=line.slice(i2,i1+1).reverse();
         }
       }
     });
   });
 
-  log("segment length:", bestLine?.length);
-
-  return bestLine;
+  log("segment:", best?.length, "score:", bestScore);
+  return best;
 }
 
 // ===== タブ =====
@@ -146,7 +174,11 @@ function renderTabs(){
   data.d.forEach((d,i)=>{
     const b=document.createElement("button");
     b.innerText=d.dt;
-    b.onclick=()=>{di=i;openIndex=null;render();}
+    b.onclick=()=>{
+      di=i;
+      openIndex=null;
+      render();
+    };
     tabs.appendChild(b);
   });
 }
@@ -156,8 +188,10 @@ function render(){
   renderTabs();
   list.innerHTML="";
 
-  data.d[di].c.forEach((c,i)=>{
-    const prev=data.d[di].c[i-1];
+  const cards=data.d[di].c;
+
+  cards.forEach((c,i)=>{
+    const prev=cards[i-1];
 
     const transfer = prev && prev.line && c.line && prev.line!==c.line;
 
@@ -192,6 +226,7 @@ function render(){
     }
   });
 
+  autoScroll();
   updateNext();
 }
 
@@ -205,19 +240,21 @@ async function initMap(di,i,c){
   const prev=data.d[di].c[i-1];
   if(!prev || !prev.la) return;
 
+  // 徒歩・車
   if(c.m!=="train"){
-    log("draw walk/car");
+    log("walk/car");
     L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
       dashArray:"6,6"
     }).addTo(map);
     return;
   }
 
-  log("train line:", c.line);
+  // 電車
+  log("train:",c.line);
 
   const geo=await loadLine(c.line);
   if(!geo){
-    log("geo not found");
+    log("no geo");
     return;
   }
 
@@ -225,26 +262,49 @@ async function initMap(di,i,c){
 
   if(seg && seg.length>1){
     const latlngs=seg.map(p=>[p[1],p[0]]);
-    const color=lineColor[c.line] || "blue";
+    const color=lineColor[c.line]||"blue";
 
-    log("draw rail", color);
+    log("draw rail",latlngs.length);
 
     L.polyline(latlngs,{
       color:color,
       weight:4
     }).addTo(map);
   }else{
-    log("fallback line");
-
+    log("fallback");
     L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
       color:"red"
     }).addTo(map);
   }
 }
 
+// ===== 自動スクロール =====
+function autoScroll(){
+  if(openIndex===null) return;
+
+  const el=document.querySelectorAll(".card")[openIndex];
+  if(el){
+    el.scrollIntoView({behavior:"smooth",block:"center"});
+  }
+}
+
 // ===== 次予定 =====
 function updateNext(){
-  next.innerText="次の予定";
+  const now=new Date();
+  const nowMin=now.getHours()*60+now.getMinutes();
+
+  let nextItem=null;
+
+  data.d[di].c.forEach(c=>{
+    if(!c.s) return;
+    const [h,m]=c.s.split(":");
+    const t=h*60+ +m;
+    if(t>=nowMin && !nextItem) nextItem=c;
+  });
+
+  next.innerText = nextItem
+    ? `次: ${nextItem.s} ${nextItem.tt||nextItem.station}`
+    : "予定終了";
 }
 
 // ===== 初期 =====
