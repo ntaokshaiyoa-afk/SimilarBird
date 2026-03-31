@@ -238,16 +238,13 @@ function render(){
     el.className="card";
 
     el.innerHTML=`
-      <div style="display:flex;align-items:center;justify-content:space-between;">
-        <div style="display:flex;">
-  <div style="flex:1">...</div>
-  <div class="drag">☰</div>
-</div>
+        <div style="display:flex;>
         <div style="flex:1;">
           <b>${c.s||""}-${c.e||""}</b><br>
           ${c.tt||""}
           <div>${c.station||""}</div>
         </div>
+        <div class="drag">☰</div>
       </div>
 
       <div style="margin-top:8px;">
