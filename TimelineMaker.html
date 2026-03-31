@@ -238,7 +238,7 @@ function render(){
     el.className="card";
 
     el.innerHTML=`
-        <div style="display:flex;>
+      <div style="display:flex; align-items:center;">
         <div style="flex:1;">
           <b>${c.s||""}-${c.e||""}</b><br>
           ${c.tt||""}
@@ -264,8 +264,7 @@ function render(){
   // ★ハンドル限定ドラッグ
   sortable = new Sortable(list,{
     animation:150,
-    handle: ".drag", // ← ここが重要
-    delay:0,         // ハンドル化したので不要
+    handle: ".drag",
     onEnd:e=>{
       const item=cards.splice(e.oldIndex,1)[0];
       cards.splice(e.newIndex,0,item);
