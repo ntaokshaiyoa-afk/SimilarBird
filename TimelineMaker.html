@@ -241,6 +241,9 @@ function render(){
   if(!sortable){
   sortable=new Sortable(list,{
     animation:150,
+    delay:150,
+    delayOnTouchOnly:true,
+    touchStartThreshold:5,
     onEnd:e=>{
       const item=cards.splice(e.oldIndex,1)[0];
       cards.splice(e.newIndex,0,item);
@@ -409,11 +412,13 @@ function generate(){
 
   out.innerText=url;
   log("URL生成:",url);
+
+  return url;
 }
 
 async function copy(){
   if(!url){
-    generate();
+    url = generate();
   }
 
   try{
