@@ -172,7 +172,7 @@ let stations=[];
   }
 }
 
-fetch("./stations.json").then(r=>r.json()).then(s=>{
+fetch("./stations.json?t=1").then(r=>r.json()).then(s=>{
   stations=s;
   log("stations:", s.length);
 });
