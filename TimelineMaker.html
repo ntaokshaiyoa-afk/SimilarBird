@@ -185,10 +185,71 @@ let stations=[];
   }
 }
 
-fetch("./stations.json?t=1").then(r=>r.json()).then(s=>{
-  stations=s;
-  log("stations:", s.length);
-});
+// ===== GeoJsonから駅情報を読み取り =====
+const lineList = [
+  "東日本旅客鉄道中央線",
+  "東日本旅客鉄道武蔵野線",
+  "東日本旅客鉄道青梅線",
+  "東日本旅客鉄道京葉線"
+];
+
+async function loadStationsFromGeoJSON(){
+  const map = {}; // name -> station
+
+  for(const lineName of lineList){
+    try{
+      log("📥 load line:", lineName);
+
+      const res = await fetch(`./lines/${lineName}.geojson`);
+      if(!res.ok){
+        log("❌ not found:", lineName);
+        continue;
+      }
+
+      const geo = await res.json();
+
+      geo.features.forEach(f=>{
+        // ★駅名取得（ここはGeoJSON仕様に依存）
+        const name =
+          f.properties?.station ||
+          f.properties?.name ||
+          f.properties?.N02_005;
+
+        if(!name) return;
+
+        let coord = null;
+
+        if(f.geometry.type === "Point"){
+          coord = f.geometry.coordinates;
+        }
+
+        // LineStringしかない場合はスキップ（後で拡張可）
+        if(!coord) return;
+
+        const lng = coord[0];
+        const lat = coord[1];
+
+        if(!map[name]){
+          map[name] = {
+            name,
+            lat,
+            lng,
+            lines:[]
+          };
+        }
+
+        map[name].lines.push(lineName);
+      });
+
+    }catch(e){
+      log("❌ load error:", lineName, e);
+    }
+  }
+
+  stations = Object.values(map);
+
+  log("✅ stations from geojson:", stations.length);
+}
 
 // ===== 保存 =====
 function save(){
@@ -387,11 +448,16 @@ function initMap(c){
 
 // ===== 最寄駅 =====
 function nearest(lat,lng){
-  let best=null,dist=999;
-  stations.forEach(s=>{
+  let best=null, bestDist=Infinity;
+
+  for(const s of stations){
     const d=(s.lat-lat)**2+(s.lng-lng)**2;
-    if(d<dist){dist=d;best=s;}
-  });
+    if(d<bestDist){
+      bestDist=d;
+      best=s;
+    }
+  }
+
   return best;
 }
 
@@ -510,7 +576,12 @@ function loadFromURL(){
   }
 }
 
-render();
+async function init(){
+  await loadStationsFromGeoJSON();
+  render();
+}
+
+init();
 </script>
 
 </body>
