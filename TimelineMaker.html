@@ -305,7 +305,7 @@ function chooseLine(prev, st){
 function initMap(c){
   if(map) map.remove();
 
-  map=L.map("map").setView([c.la||35,c.lo||139],13);
+  map=L.map("map").setView([c.la||35.7708,c.lo||139.9438],13);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
