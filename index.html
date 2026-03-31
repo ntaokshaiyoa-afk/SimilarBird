@@ -85,7 +85,7 @@ function loadData(){
   }
 }
 
-const data=loadData();
+const data=loadData() || {d:[{dt:"サンプル",c:[]}]};
 let di=0, openIndex=null;
 
 // ===== 路線カラー =====
@@ -176,7 +176,8 @@ function extractSegment(geo, from, to){
 // ===== タブ =====
 function renderTabs(){
   tabs.innerHTML="";
-  data.d.forEach((d,i)=>{
+
+  (data.d||[]).forEach((d,i)=>{
     const b=document.createElement("button");
     b.innerText=d.dt;
     b.onclick=()=>{
@@ -190,6 +191,7 @@ function renderTabs(){
 
 // ===== 描画 =====
 function render(){
+  renderTabs();
   list.innerHTML="";
 
   data.d[di].c.forEach((c,i)=>{
@@ -206,7 +208,8 @@ function render(){
       </div>
     `;
 
-    el.onclick=()=>{
+    el.querySelector(".header").onclick=(e)=>{
+      e.stopPropagation();
       openIndex=(openIndex===i?null:i);
       render();
     };
@@ -223,10 +226,20 @@ function render(){
 async function initMap(i,c){
   log("=== initMap ===");
 
-  const map=L.map(`m${i}`).setView([c.la||35,c.lo||139],13);
+  const map=L.map(`m${i}`,{
+    dragging:true,
+    tap:false // ★ iPhone対策（重要）
+  }).setView([c.la||35,c.lo||139],13);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
+  const container = map.getContainer();
+
+  // ★ これが超重要（カード閉じ防止）
+  container.addEventListener("click", e=>e.stopPropagation());
+  container.addEventListener("touchstart", e=>e.stopPropagation());
+  container.addEventListener("touchmove", e=>e.stopPropagation());
+  
   if(!c.la) return;
 
   L.marker([c.la,c.lo]).addTo(map);
