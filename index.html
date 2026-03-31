@@ -99,11 +99,22 @@ const lineColor={
 // ===== 路線キャッシュ =====
 const lineCache={};
 
+function normalizeLineName(name){
+  if(!name) return null;
+
+  return name
+    .replaceAll("JR東日本", "東日本旅客鉄道")
+    .replaceAll("JR", "東日本旅客鉄道")
+    .replaceAll("線", "線"); // 将来拡張用
+}
+  
 async function loadLine(name){
   if(!name){
     log("❌ line missing");
     return null;
   }
+
+  name = normalizeLineName(name);
 
   if(lineCache[name]) return lineCache[name];
 
