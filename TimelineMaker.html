@@ -238,7 +238,8 @@ function render(){
     list.appendChild(el);
   });
 
-  new Sortable(list,{
+  if(!sortable){
+  sortable=new Sortable(list,{
     animation:150,
     onEnd:e=>{
       const item=cards.splice(e.oldIndex,1)[0];
@@ -246,6 +247,7 @@ function render(){
       save();
     }
   });
+  }
 
   save();
 }
@@ -417,18 +419,40 @@ async function copy(){
   try{
     await navigator.clipboard.writeText(url);
     showToast("コピーしました");
+    return;
   }catch(e){
-    log("copy error:",e);
+    log("clipboard失敗:",e);
+  }
 
-    // fallback（超重要）
+  // ★ iOS完全対応 fallback
+  try{
     const ta=document.createElement("textarea");
     ta.value=url;
+
+    // iOS対策
+    ta.style.position="fixed";
+    ta.style.top="0";
+    ta.style.left="0";
+    ta.style.opacity="0";
+
     document.body.appendChild(ta);
+
+    ta.focus();
     ta.select();
-    document.execCommand("copy");
+
+    const ok=document.execCommand("copy");
+
     document.body.removeChild(ta);
 
-    showToast("コピーしました(代替)");
+    if(ok){
+      showToast("コピーしました");
+    }else{
+      throw "execCommand失敗";
+    }
+
+  }catch(e){
+    log("fallback失敗:",e);
+    showToast("コピーできませんでした");
   }
 }
 
