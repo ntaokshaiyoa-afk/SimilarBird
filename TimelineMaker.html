@@ -156,6 +156,22 @@ let di=0, ei=null;
 let map, marker;
 let stations=[];
 
+  function load(){
+  try{
+    const d = JSON.parse(localStorage.getItem("sb"));
+
+    // ★完全ガード
+    if(!d || !d.d || !Array.isArray(d.d)){
+      throw "invalid data";
+    }
+
+    return d;
+
+  }catch{
+    return {d:[{dt:"1日目",c:[]}]};
+  }
+}
+
 fetch("./stations.json").then(r=>r.json()).then(s=>{
   stations=s;
   log("stations:", s.length);
@@ -166,7 +182,19 @@ function save(){
   localStorage.setItem("sb", JSON.stringify(data));
 }
 function load(){
-  try{return JSON.parse(localStorage.getItem("sb"));}catch{return {d:[{dt:"1日目",c:[]}]};}
+  try{
+    const d = JSON.parse(localStorage.getItem("sb"));
+
+    // ★完全ガード
+    if(!d || !d.d || !Array.isArray(d.d)){
+      throw "invalid data";
+    }
+
+    return d;
+
+  }catch{
+    return {d:[{dt:"1日目",c:[]}]};
+  }
 }
 
 // ===== タブ =====
@@ -182,10 +210,15 @@ function renderTabs(){
 
 // ===== 描画 =====
 function render(){
+  if(!data || !data.d){
+    log("❌ data broken, reset");
+    data={d:[{dt:"1日目",c:[]}]};
+  }
+
   renderTabs();
   list.innerHTML="";
 
-  const cards=data.d[di].c;
+  const cards=data.d[di]?.c || [];
 
   cards.forEach((c,i)=>{
     const el=document.createElement("div");
