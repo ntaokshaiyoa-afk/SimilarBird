@@ -316,14 +316,33 @@ function edit(i){
   initMap(c);
 }
 
+function normalizeLineName(name){
+  if(!name) return null;
+
+  return name
+    .replace("JR中央線", "東日本旅客鉄道中央線")
+    .replace("中央線", "東日本旅客鉄道中央線")
+    .replace("武蔵野線", "東日本旅客鉄道武蔵野線")
+    .replace("青梅線", "東日本旅客鉄道青梅線")
+    .replace("京葉線", "東日本旅客鉄道京葉線");
+}
+  
 // ===== 路線選択 =====
 function chooseLine(prev, st){
   if(!st.lines) return null;
+
+  let line = null;
+
   if(prev && prev.line){
-    const m=st.lines.find(l=>l===prev.line);
-    if(m) return m;
+    const m = st.lines.find(l=>l===prev.line);
+    if(m) line = m;
   }
-  return st.lines[0];
+
+  if(!line){
+    line = st.lines[0];
+  }
+
+  return normalizeLineName(line); // ★ここ重要
 }
 
 // ===== 地図 =====
@@ -391,6 +410,7 @@ function saveEdit(){
     const st = stations.find(s=>s.name===c.station);
     if(st && st.lines && st.lines.length>0){
       c.line = st.lines[0];
+      c.line = normalizeLineName(c.line);
       log("補完 line:", c.line);
     }else{
       log("❌ line補完失敗");
