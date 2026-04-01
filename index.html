@@ -239,18 +239,22 @@ async function initMap(i,c){
 
   const map=L.map(`m${i}`,{
     dragging:true,
-    tap:false // ★ iPhone対策（重要）
+    tap:false,              // iOS対策
+    touchZoom:true,
+    scrollWheelZoom:true
   }).setView([c.la||35,c.lo||139],13);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
   const container = map.getContainer();
 
-  // ★ これが超重要（カード閉じ防止）
+  // ✅ カード閉じ防止（最小限）
   container.addEventListener("click", e=>e.stopPropagation());
-  container.addEventListener("touchstart", e=>e.stopPropagation());
-  container.addEventListener("touchmove", e=>e.stopPropagation());
-  
+  container.addEventListener("touchstart", e=>e.stopPropagation(), {passive:true});
+
+  // ❌ touchmoveは止めない（←ここが重要）
+  // container.addEventListener("touchmove", e=>e.stopPropagation());
+
   if(!c.la) return;
 
   L.marker([c.la,c.lo]).addTo(map);
@@ -272,7 +276,6 @@ async function initMap(i,c){
     return;
   }
 
-  // ★ lineフォールバック
   if(!c.line){
     log("⚠ line missing → fallback");
     c.line = prev.line;
@@ -306,7 +309,7 @@ async function initMap(i,c){
     weight:4
   }).addTo(map);
 }
-
+  
 // ===== 自動スクロール =====
 function autoScroll(){
   if(openIndex===null) return;
