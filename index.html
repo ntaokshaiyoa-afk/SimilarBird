@@ -239,7 +239,7 @@ async function initMap(i,c){
 
   const map=L.map(`m${i}`,{
     dragging:true,
-    tap:false,              // iOS対策
+    tap:false,
     touchZoom:true,
     scrollWheelZoom:true
   }).setView([c.la||35,c.lo||139],13);
@@ -248,12 +248,45 @@ async function initMap(i,c){
 
   const container = map.getContainer();
 
-  // ✅ カード閉じ防止（最小限）
+  // --- カード閉じ防止 ---
   container.addEventListener("click", e=>e.stopPropagation());
   container.addEventListener("touchstart", e=>e.stopPropagation(), {passive:true});
 
-  // ❌ touchmoveは止めない（←ここが重要）
-  // container.addEventListener("touchmove", e=>e.stopPropagation());
+  // =========================
+  // ★ ここが今回の本体
+  // =========================
+
+  let touching = false;
+
+  container.addEventListener("touchstart", ()=>{
+    touching = true;
+    lockBodyScroll(true);
+  }, {passive:true});
+
+  container.addEventListener("touchend", ()=>{
+    touching = false;
+    lockBodyScroll(false);
+  });
+
+  container.addEventListener("touchcancel", ()=>{
+    touching = false;
+    lockBodyScroll(false);
+  });
+
+  // 念のためマウス対応
+  container.addEventListener("mousedown", ()=>{
+    lockBodyScroll(true);
+  });
+
+  container.addEventListener("mouseup", ()=>{
+    lockBodyScroll(false);
+  });
+
+  container.addEventListener("mouseleave", ()=>{
+    lockBodyScroll(false);
+  });
+
+  // =========================
 
   if(!c.la) return;
 
@@ -266,10 +299,7 @@ async function initMap(i,c){
     return;
   }
 
-  log("from:",prev.station,"to:",c.station);
-
   if(c.m!=="train"){
-    log("not train → straight");
     L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
       dashArray:"6,6"
     }).addTo(map);
@@ -277,37 +307,34 @@ async function initMap(i,c){
   }
 
   if(!c.line){
-    log("⚠ line missing → fallback");
     c.line = prev.line;
   }
 
-  if(!c.line){
-    log("❌ line still missing");
-    return;
-  }
+  if(!c.line) return;
 
   const geo=await loadLine(c.line);
-
-  if(!geo){
-    log("❌ no geo");
-    return;
-  }
+  if(!geo) return;
 
   const seg=extractSegment(geo,[prev.lo,prev.la],[c.lo,c.la]);
-
-  if(!seg){
-    log("❌ segment not found");
-    return;
-  }
+  if(!seg) return;
 
   const latlngs=seg.map(p=>[p[1],p[0]]);
-
-  log("draw points:",latlngs.length);
 
   L.polyline(latlngs,{
     color:"red",
     weight:4
   }).addTo(map);
+}
+
+// ===== 地図操作中の本文スクロール抑制 =====
+function lockBodyScroll(lock){
+  if(lock){
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+  }else{
+    document.body.style.overflow = "";
+    document.body.style.touchAction = "";
+  }
 }
   
 // ===== 自動スクロール =====
