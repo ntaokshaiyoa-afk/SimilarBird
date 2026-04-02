@@ -541,12 +541,14 @@ function renderTabs(){
 
 // ===== 描画 =====
 function render(){
+  const prevScroll = window.scrollY;
+
   renderTabs();
-
-  scrollTop = window.scrollY; // ★追加
   renderVirtual();
-
   renderOverviewMap();
+
+  // 👇 これが超重要
+  window.scrollTo(0, prevScroll);
 
   setTimeout(prefetchRoutes, 300);
 }
@@ -752,9 +754,15 @@ function renderVirtual(){
     Math.ceil((scrollTop + viewHeight) / ITEM_HEIGHT) + BUFFER
   );
 
-  list.innerHTML = "";
+  if(openIndex !== null){
+    // 👇 地図開いてる時は仮想化しない
+    renderAll();
+    return;
+  }
 
   log("renderVirtual", start, end, cards.length);
+  
+  list.innerHTML = "";
   
   // 上スペーサー
   const topSpacer = document.createElement("div");
@@ -779,10 +787,24 @@ function renderVirtual(){
     `;
 
     el.querySelector(".header").onclick=(e)=>{
-      e.stopPropagation();
-      openIndex=(openIndex===i?null:i);
-      render(); // 再描画
-    };
+  e.stopPropagation();
+
+  const wasOpen = openIndex === i;
+  openIndex = wasOpen ? null : i;
+
+  // ❌ render()しない
+  // render();
+
+  // 👇 DOMだけ更新
+  document.querySelectorAll(".card").forEach((card, idx)=>{
+    card.classList.toggle("open", idx === openIndex);
+  });
+
+  // 👇 map初期化
+  if(openIndex !== null){
+    setTimeout(()=>initMap(openIndex, cards[openIndex]),50);
+  }
+};
 
     list.appendChild(el);
 
