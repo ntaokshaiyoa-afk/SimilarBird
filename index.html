@@ -141,8 +141,10 @@ document.getElementById("devToggle").onclick = ()=>{
   
 // ===== LOG =====
 function log(...a){
-  console.log(...a);
-  debug.innerText += a.join(" ")+"\n";
+  try{
+    console.log(...a);
+    debug.innerText += a.join(" ") + "\n";
+  }catch(e){}
 }
 
 window.onerror = function(msg, url, line, col, err){
@@ -365,7 +367,7 @@ async function buildFullRoute(){
     
       // 🚨 乗り換え検知
       if(prevLine && currLine && prevLine !== currLine){
-        log("🔁 乗り換え検知:", prevLine, "→", currLine);
+        log("transfer:", prevLine, "->", currLine);
     
         // 👉 徒歩ルートで補完
         const result = await getRouteORS(prev, curr, "walk");
