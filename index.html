@@ -359,28 +359,38 @@ async function buildFullRoute(){
     if(!prev.la || !curr.la) continue;
 
     // 🚃 電車
-    if(curr.m === "train"){
-      let line = curr.line || prev.line;
-      if(!line) continue;
+if(curr.m === "train"){
+  // 同一路線なら従来
+  if(prev.line === curr.line){
+    const geo = await loadLine(curr.line);
+    if(!geo) continue;
 
-      const geo = await loadLine(line);
-      if(!geo) continue;
+    const seg = extractSegment(
+      geo,
+      [prev.lo, prev.la],
+      [curr.lo, curr.la]
+    );
 
-      const seg = extractSegment(
-        geo,
-        [prev.lo, prev.la],
-        [curr.lo, curr.la]
-      );
-
-      if(!seg) continue;
-
+    if(seg){
       routes.push({
         type:"train",
         coords: seg.map(p=>[p[1],p[0]])
       });
-
       continue;
     }
+  }
+
+  // 👇 ここが追加（異なる路線）
+  const coords = await buildTrainRoute(prev, curr);
+
+  if(coords){
+    routes.push({
+      type:"train",
+      coords
+    });
+    continue;
+  }
+}
 
     // 🚗 ORS
     const result = await getRouteORS(prev, curr, curr.m);
@@ -404,6 +414,103 @@ async function buildFullRoute(){
   }
 
   return routes;
+}
+
+  async function buildTrainRoute(prev, curr){
+  const path = findRoute(prev.station, curr.station);
+
+  if(!path){
+    log("❌ 経路見つからず");
+    return null;
+  }
+
+  let coords = [];
+
+  for(const seg of path){
+    const geo = await loadLine(seg.line);
+    if(!geo) continue;
+
+    const from = stations.find(s=>s.name === seg.from);
+    const to = stations.find(s=>s.name === seg.to);
+
+    if(!from || !to) continue;
+
+    const part = extractSegment(
+      geo,
+      [from.lng, from.lat],
+      [to.lng, to.lat]
+    );
+
+    if(part){
+      coords = coords.concat(part.map(p=>[p[1],p[0]]));
+    }
+  }
+
+  return coords;
+}
+
+  async function buildTrainRoute(prev, curr){
+  const path = findRoute(prev.station, curr.station);
+
+  if(!path){
+    log("❌ 経路見つからず");
+    return null;
+  }
+
+  let coords = [];
+
+  for(const seg of path){
+    const geo = await loadLine(seg.line);
+    if(!geo) continue;
+
+    const from = stations.find(s=>s.name === seg.from);
+    const to = stations.find(s=>s.name === seg.to);
+
+    if(!from || !to) continue;
+
+    const part = extractSegment(
+      geo,
+      [from.lng, from.lat],
+      [to.lng, to.lat]
+    );
+
+    if(part){
+      coords = coords.concat(part.map(p=>[p[1],p[0]]));
+    }
+  }
+
+  return coords;
+}
+
+  function findRoute(fromName, toName){
+  const queue = [{name: fromName, path: []}];
+  const visited = new Set();
+
+  while(queue.length){
+    const curr = queue.shift();
+
+    if(curr.name === toName){
+      return curr.path;
+    }
+
+    if(visited.has(curr.name)) continue;
+    visited.add(curr.name);
+
+    const edges = stationGraph[curr.name] || [];
+
+    edges.forEach(e=>{
+      queue.push({
+        name: e.to,
+        path: [...curr.path, {
+          from: curr.name,
+          to: e.to,
+          line: e.line
+        }]
+      });
+    });
+  }
+
+  return null;
 }
 
 let overviewMap;
