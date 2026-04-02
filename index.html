@@ -480,24 +480,6 @@ function hideLoading(index){
 async function initMap(i,c){
   log("=== initMap ===");
 
-  // ★ キャッシュ即描画
-const cacheKey = `${prev?.la},${prev?.lo}-${c?.la},${c?.lo}-${c?.m}`;
-const cached = routeCache[cacheKey];
-
-if(cached){
-  const {coords, distance, duration} = cached;
-
-  L.polyline(coords,{
-    color:getRouteColor(c.m),
-    weight:4
-  }).addTo(map);
-
-  showRouteInfo(i, distance, duration);
-
-  log("⚡ instant draw");
-  return;
-}
-
   const map=L.map(`m${i}`,{
     dragging:true,
     tap:false,
@@ -528,6 +510,24 @@ if(cached){
 
   if(!prev || !prev.la){
     log("no prev");
+    return;
+  }
+
+  // ★ キャッシュ即描画
+  const cacheKey = `${prev?.la},${prev?.lo}-${c?.la},${c?.lo}-${c?.m}`;
+  const cached = routeCache[cacheKey];
+
+  if(cached){
+    const {coords, distance, duration} = cached;
+
+    L.polyline(coords,{
+      color:getRouteColor(c.m),
+      weight:4
+    }).addTo(map);
+
+    showRouteInfo(i, distance, duration);
+
+    log("⚡ instant draw");
     return;
   }
 
