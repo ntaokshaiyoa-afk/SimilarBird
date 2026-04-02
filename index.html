@@ -88,6 +88,8 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 <div id="debug"></div>
 
 <script>
+let maps = {};
+
 // ===== LOG =====
 function log(...a){
   console.log(...a);
@@ -480,27 +482,52 @@ function hideLoading(index){
 async function initMap(i,c){
   log("=== initMap ===");
 
-  const map=L.map(`m${i}`,{
-    dragging:true,
-    tap:false,
-    touchZoom:true,
-    scrollWheelZoom:true
-  }).setView([c.la||35,c.lo||139],13);
+  let map = maps[i];
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+  // =========================
+  // ★ 初回だけ生成
+  // =========================
+  if(!map){
+    map = L.map(`m${i}`,{
+      dragging:true,
+      tap:false,
+      touchZoom:true,
+      scrollWheelZoom:true
+    });
 
-  const container = map.getContainer();
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png')
+      .addTo(map);
 
-  container.addEventListener("click", e=>e.stopPropagation());
-  container.addEventListener("touchstart", e=>e.stopPropagation(), {passive:true});
+    const container = map.getContainer();
 
-  container.addEventListener("touchstart", ()=>lockBodyScroll(true), {passive:true});
-  container.addEventListener("touchend", ()=>lockBodyScroll(false));
-  container.addEventListener("touchcancel", ()=>lockBodyScroll(false));
+    // --- カード閉じ防止 ---
+    container.addEventListener("click", e=>e.stopPropagation());
+    container.addEventListener("touchstart", e=>e.stopPropagation(), {passive:true});
 
-  container.addEventListener("mousedown", ()=>lockBodyScroll(true));
-  container.addEventListener("mouseup", ()=>lockBodyScroll(false));
-  container.addEventListener("mouseleave", ()=>lockBodyScroll(false));
+    // --- スクロール制御 ---
+    container.addEventListener("touchstart", ()=>lockBodyScroll(true), {passive:true});
+    container.addEventListener("touchend", ()=>lockBodyScroll(false));
+    container.addEventListener("touchcancel", ()=>lockBodyScroll(false);
+
+    container.addEventListener("mousedown", ()=>lockBodyScroll(true));
+    container.addEventListener("mouseup", ()=>lockBodyScroll(false));
+    container.addEventListener("mouseleave", ()=>lockBodyScroll(false));
+
+    maps[i] = map;
+  }
+
+  // =========================
+  // ★ 表示更新だけ
+  // =========================
+
+  map.setView([c.la||35,c.lo||139],13);
+
+  // ★ 前回のレイヤ削除
+  map.eachLayer(layer=>{
+    if(!(layer instanceof L.TileLayer)){
+      map.removeLayer(layer);
+    }
+  });
 
   if(!c.la) return;
 
@@ -513,77 +540,59 @@ async function initMap(i,c){
     return;
   }
 
-  // ★ キャッシュ即描画
-  const cacheKey = `${prev?.la},${prev?.lo}-${c?.la},${c?.lo}-${c?.m}`;
-  const cached = routeCache[cacheKey];
-
-  if(cached){
-    const {coords, distance, duration} = cached;
-
-    L.polyline(coords,{
-      color:getRouteColor(c.m),
-      weight:4
-    }).addTo(map);
-
-    showRouteInfo(i, distance, duration);
-
-    log("⚡ instant draw");
-    return;
-  }
-
   // =========================
-  // 🚃 電車
+  // 🚗 ORS or fallback
   // =========================
-  if(c.m==="train"){
-    if(!c.line) c.line = prev.line;
-    if(!c.line) return;
 
-    const geo=await loadLine(c.line);
-    if(!geo) return;
+  if(c.m!=="train"){
+    showLoading(i);
 
-    const seg=extractSegment(geo,[prev.lo,prev.la],[c.lo,c.la]);
-    if(!seg) return;
+    const result = await getRouteORS(prev, c, c.m);
 
-    const latlngs=seg.map(p=>[p[1],p[0]]);
+    hideLoading(i);
 
-    L.polyline(latlngs,{
-      color:"red",
-      weight:4
+    if(result){
+      const {coords, distance, duration} = result;
+
+      L.polyline(coords,{
+        color:getRouteColor(c.m),
+        weight:4
+      }).addTo(map);
+
+      showRouteInfo(i, distance, duration);
+
+      return;
+    }
+
+    // fallback
+    L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
+      dashArray:"6,6"
     }).addTo(map);
 
     return;
   }
 
-// =========================
-// 🚗 ORSルート
-// =========================
-showLoading(i);
+  // =========================
+  // 🚃 train
+  // =========================
 
-const result = await getRouteORS(prev, c, c.m);
+  if(!c.line){
+    c.line = prev.line;
+  }
 
-hideLoading(i);
+  if(!c.line) return;
 
-if(result){
-  const {coords, distance, duration} = result;
+  const geo=await loadLine(c.line);
+  if(!geo) return;
 
-  L.polyline(coords,{
-    color:getRouteColor(c.m),
+  const seg=extractSegment(geo,[prev.lo,prev.la],[c.lo,c.la]);
+  if(!seg) return;
+
+  const latlngs=seg.map(p=>[p[1],p[0]]);
+
+  L.polyline(latlngs,{
+    color:"red",
     weight:4
-  }).addTo(map);
-
-  showRouteInfo(i, distance, duration);
-
-  log("✅ ORS route drawn");
-  return;
-}
-
-  // =========================
-  // fallback（直線）
-  // =========================
-  log("⚠ fallback line");
-
-  L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
-    dashArray:"6,6"
   }).addTo(map);
 }
 
