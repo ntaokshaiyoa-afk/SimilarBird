@@ -82,6 +82,7 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 </div>
 
 <div id="tabs" class="tabs"></div>
+<div id="overviewMap" style="height:200px;margin:10px;border-radius:12px;"></div>
 <div id="list"></div>
 <div class="spacer"></div>
 <div id="next" class="next"></div>
@@ -302,6 +303,117 @@ async function prefetchRoutes(){
   prefetching = false;
 }
 
+// ===== ルート全体 =====
+async function buildFullRoute(){
+  const cards = data.d?.[di]?.c || [];
+
+  const routes = [];
+
+  for(let i=1;i<cards.length;i++){
+    const prev = cards[i-1];
+    const curr = cards[i];
+
+    if(!prev.la || !curr.la) continue;
+
+    // 🚃 電車
+    if(curr.m === "train"){
+      let line = curr.line || prev.line;
+      if(!line) continue;
+
+      const geo = await loadLine(line);
+      if(!geo) continue;
+
+      const seg = extractSegment(
+        geo,
+        [prev.lo, prev.la],
+        [curr.lo, curr.la]
+      );
+
+      if(!seg) continue;
+
+      routes.push({
+        type:"train",
+        coords: seg.map(p=>[p[1],p[0]])
+      });
+
+      continue;
+    }
+
+    // 🚗 ORS
+    const result = await getRouteORS(prev, curr, curr.m);
+
+    if(result){
+      routes.push({
+        type: curr.m,
+        coords: result.coords
+      });
+      continue;
+    }
+
+    // fallback
+    routes.push({
+      type:"fallback",
+      coords: [
+        [prev.la,prev.lo],
+        [curr.la,curr.lo]
+      ]
+    });
+  }
+
+  return routes;
+}
+
+let overviewMap;
+
+async function renderOverviewMap(){
+  const el = document.getElementById("overviewMap");
+  if(!el) return;
+
+  if(!overviewMap){
+    overviewMap = L.map(el, {
+      dragging:true,
+      tap:false
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png')
+      .addTo(overviewMap);
+  }
+
+  // 既存レイヤ削除
+  overviewMap.eachLayer(layer=>{
+    if(!(layer instanceof L.TileLayer)){
+      overviewMap.removeLayer(layer);
+    }
+  });
+
+  const routes = await buildFullRoute();
+
+  let bounds = [];
+
+  routes.forEach(r=>{
+    const poly = L.polyline(r.coords,{
+      color: getRouteColor(r.type),
+      weight:4,
+      dashArray: r.type==="fallback" ? "6,6" : null
+    }).addTo(overviewMap);
+
+    bounds = bounds.concat(r.coords);
+  });
+
+  // マーカーも追加
+  const cards = data.d?.[di]?.c || [];
+  cards.forEach(c=>{
+    if(c.la){
+      L.marker([c.la,c.lo]).addTo(overviewMap);
+      bounds.push([c.la,c.lo]);
+    }
+  });
+
+  if(bounds.length){
+    overviewMap.fitBounds(bounds, {padding:[20,20]});
+  }
+}
+
 // ===== LOAD =====
 function loadData(){
   try{
@@ -433,6 +545,8 @@ function render(){
 
   scrollTop = window.scrollY; // ★追加
   renderVirtual();
+
+  renderOverviewMap();
 
   setTimeout(prefetchRoutes, 300);
 }
