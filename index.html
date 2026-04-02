@@ -359,38 +359,58 @@ async function buildFullRoute(){
     if(!prev.la || !curr.la) continue;
 
     // 🚃 電車
-if(curr.m === "train"){
-  // 同一路線なら従来
-  if(prev.line === curr.line){
-    const geo = await loadLine(curr.line);
-    if(!geo) continue;
-
-    const seg = extractSegment(
-      geo,
-      [prev.lo, prev.la],
-      [curr.lo, curr.la]
-    );
-
-    if(seg){
+    if(curr.m === "train"){
+      const prevLine = prev.line;
+      const currLine = curr.line;
+    
+      // 🚨 乗り換え検知
+      if(prevLine && currLine && prevLine !== currLine){
+        log("🔁 乗り換え検知:", prevLine, "→", currLine);
+    
+        // 👉 徒歩ルートで補完
+        const result = await getRouteORS(prev, curr, "walk");
+    
+        if(result){
+          routes.push({
+            type:"transfer",
+            coords: result.coords
+          });
+        }else{
+          // fallback
+          routes.push({
+            type:"fallback",
+            coords: [
+              [prev.la, prev.lo],
+              [curr.la, curr.lo]
+            ]
+          });
+        }
+    
+        continue;
+      }
+    
+      // 🚃 通常の同一路線
+      let line = currLine || prevLine;
+      if(!line) continue;
+    
+      const geo = await loadLine(line);
+      if(!geo) continue;
+    
+      const seg = extractSegment(
+        geo,
+        [prev.lo, prev.la],
+        [curr.lo, curr.la]
+      );
+    
+      if(!seg) continue;
+    
       routes.push({
         type:"train",
         coords: seg.map(p=>[p[1],p[0]])
       });
+    
       continue;
     }
-  }
-
-  // 👇 ここが追加（異なる路線）
-  const coords = await buildTrainRoute(prev, curr);
-
-  if(coords){
-    routes.push({
-      type:"train",
-      coords
-    });
-    continue;
-  }
-}
 
     // 🚗 ORS
     const result = await getRouteORS(prev, curr, curr.m);
@@ -870,6 +890,7 @@ function getRouteColor(mode){
     case "walk": return "green";
     case "car": return "#007aff";
     case "bike": return "orange";
+    case "transfer": return "purple"; /
     default: return "#007aff";
   }
 }
