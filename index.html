@@ -46,6 +46,11 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 
 .spacer{height:60px;}
 
+.loading {
+  font-size:12px;
+  color:#999;
+}
+
 #debug{
   position:fixed;
   bottom:0;
@@ -247,6 +252,45 @@ function formatDuration(sec){
   return `${h}時間${m}分`;
 }
 
+// ===== PREFETCH =====
+let prefetching = false;
+
+async function prefetchRoutes(){
+  if(prefetching) return;
+
+  const cards = data.d[di].c;
+  if(!cards || cards.length < 2) return;
+
+  prefetching = true;
+  log("🚀 prefetch start");
+
+  const tasks = [];
+
+  for(let i=1;i<cards.length;i++){
+    const prev = cards[i-1];
+    const curr = cards[i];
+
+    if(!prev.la || !curr.la) continue;
+    if(curr.m === "train") continue;
+
+    // ★ 未キャッシュのみ
+    const key = `${prev.la},${prev.lo}-${curr.la},${curr.lo}-${curr.m}`;
+    if(routeCache[key]) continue;
+
+    tasks.push(getRouteORS(prev, curr, curr.m));
+  }
+
+  // ★ 並列実行（最大3並列くらいに抑える）
+  const limit = 3;
+
+  for(let i=0;i<tasks.length;i+=limit){
+    await Promise.all(tasks.slice(i,i+limit));
+  }
+
+  log("✅ prefetch done");
+  prefetching = false;
+}
+
 // ===== LOAD =====
 function loadData(){
   try{
@@ -403,11 +447,56 @@ function render(){
       setTimeout(()=>initMap(i,c),0);
     }
   });
+  
+  setTimeout(prefetchRoutes, 300);
+}
+
+function showLoading(index){
+  const cards = document.querySelectorAll(".card");
+  const card = cards[index];
+
+  if(!card) return;
+
+  let el = card.querySelector(".routeInfo");
+
+  if(!el){
+    el = document.createElement("div");
+    el.className = "routeInfo loading";
+    card.querySelector(".header").appendChild(el);
+  }
+
+  el.innerText = "ルート取得中...";
+}
+
+function hideLoading(index){
+  const card = document.querySelectorAll(".card")[index];
+  if(!card) return;
+
+  const el = card.querySelector(".routeInfo");
+  if(el) el.classList.remove("loading");
 }
 
 // ===== 地図 =====
 async function initMap(i,c){
   log("=== initMap ===");
+
+  // ★ キャッシュ即描画
+const cacheKey = `${prev?.la},${prev?.lo}-${c?.la},${c?.lo}-${c?.m}`;
+const cached = routeCache[cacheKey];
+
+if(cached){
+  const {coords, distance, duration} = cached;
+
+  L.polyline(coords,{
+    color:getRouteColor(c.m),
+    weight:4
+  }).addTo(map);
+
+  showRouteInfo(i, distance, duration);
+
+  log("⚡ instant draw");
+  return;
+}
 
   const map=L.map(`m${i}`,{
     dragging:true,
@@ -468,17 +557,20 @@ async function initMap(i,c){
 // =========================
 // 🚗 ORSルート
 // =========================
+showLoading(i);
+
 const result = await getRouteORS(prev, c, c.m);
+
+hideLoading(i);
 
 if(result){
   const {coords, distance, duration} = result;
 
   L.polyline(coords,{
-  color:getRouteColor(c.m),
-  weight:4
-}).addTo(map);
-  
-  // ★ 情報表示
+    color:getRouteColor(c.m),
+    weight:4
+  }).addTo(map);
+
   showRouteInfo(i, distance, duration);
 
   log("✅ ORS route drawn");
