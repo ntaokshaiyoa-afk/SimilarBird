@@ -134,6 +134,75 @@ function initApiKey(){
   alert("ORS APIキーを入力してください");
 }
 
+// ===== ORS CACHE =====
+const routeCache = {};
+
+function getProfile(mode){
+  switch(mode){
+    case "walk": return "foot-walking";
+    case "car": return "driving-car";
+    case "bike": return "cycling-regular";
+    default: return "foot-walking";
+  }
+}
+
+async function getRouteORS(prev, curr, mode){
+  const key = getApiKey();
+
+  if(!key){
+    log("❌ APIキー未設定");
+    return null;
+  }
+
+  const cacheKey = `${prev.la},${prev.lo}-${curr.la},${curr.lo}-${mode}`;
+
+  if(routeCache[cacheKey]){
+    log("⚡ cache hit");
+    return routeCache[cacheKey];
+  }
+
+  const profile = getProfile(mode);
+
+  try{
+    log("🌍 ORS request:", profile);
+
+    const res = await fetch(
+      `https://api.openrouteservice.org/v2/directions/${profile}/geojson`,
+      {
+        method:"POST",
+        headers:{
+          "Authorization": key,
+          "Content-Type":"application/json"
+        },
+        body: JSON.stringify({
+          coordinates: [
+            [prev.lo, prev.la],
+            [curr.lo, curr.la]
+          ]
+        })
+      }
+    );
+
+    if(!res.ok){
+      log("❌ ORS error:", res.status);
+      return null;
+    }
+
+    const geo = await res.json();
+
+    const coords = geo.features[0].geometry.coordinates
+      .map(p=>[p[1], p[0]]);
+
+    routeCache[cacheKey] = coords;
+
+    return coords;
+
+  }catch(e){
+    log("❌ ORS fetch error:", e);
+    return null;
+  }
+}
+
 // ===== LOAD =====
 function loadData(){
   try{
@@ -293,6 +362,7 @@ function render(){
 }
 
 // ===== 地図 =====
+// ===== 地図 =====
 async function initMap(i,c){
   log("=== initMap ===");
 
@@ -307,45 +377,16 @@ async function initMap(i,c){
 
   const container = map.getContainer();
 
-  // --- カード閉じ防止 ---
   container.addEventListener("click", e=>e.stopPropagation());
   container.addEventListener("touchstart", e=>e.stopPropagation(), {passive:true});
 
-  // =========================
-  // ★ ここが今回の本体
-  // =========================
+  container.addEventListener("touchstart", ()=>lockBodyScroll(true), {passive:true});
+  container.addEventListener("touchend", ()=>lockBodyScroll(false));
+  container.addEventListener("touchcancel", ()=>lockBodyScroll(false));
 
-  let touching = false;
-
-  container.addEventListener("touchstart", ()=>{
-    touching = true;
-    lockBodyScroll(true);
-  }, {passive:true});
-
-  container.addEventListener("touchend", ()=>{
-    touching = false;
-    lockBodyScroll(false);
-  });
-
-  container.addEventListener("touchcancel", ()=>{
-    touching = false;
-    lockBodyScroll(false);
-  });
-
-  // 念のためマウス対応
-  container.addEventListener("mousedown", ()=>{
-    lockBodyScroll(true);
-  });
-
-  container.addEventListener("mouseup", ()=>{
-    lockBodyScroll(false);
-  });
-
-  container.addEventListener("mouseleave", ()=>{
-    lockBodyScroll(false);
-  });
-
-  // =========================
+  container.addEventListener("mousedown", ()=>lockBodyScroll(true));
+  container.addEventListener("mouseup", ()=>lockBodyScroll(false));
+  container.addEventListener("mouseleave", ()=>lockBodyScroll(false));
 
   if(!c.la) return;
 
@@ -358,30 +399,51 @@ async function initMap(i,c){
     return;
   }
 
-  if(c.m!=="train"){
-    L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
-      dashArray:"6,6"
+  // =========================
+  // 🚃 電車
+  // =========================
+  if(c.m==="train"){
+    if(!c.line) c.line = prev.line;
+    if(!c.line) return;
+
+    const geo=await loadLine(c.line);
+    if(!geo) return;
+
+    const seg=extractSegment(geo,[prev.lo,prev.la],[c.lo,c.la]);
+    if(!seg) return;
+
+    const latlngs=seg.map(p=>[p[1],p[0]]);
+
+    L.polyline(latlngs,{
+      color:"red",
+      weight:4
     }).addTo(map);
+
     return;
   }
 
-  if(!c.line){
-    c.line = prev.line;
+  // =========================
+  // 🚗 ORSルート
+  // =========================
+  const route = await getRouteORS(prev, c, c.m);
+
+  if(route){
+    L.polyline(route,{
+      color:"#007aff",
+      weight:4
+    }).addTo(map);
+
+    log("✅ ORS route drawn");
+    return;
   }
 
-  if(!c.line) return;
+  // =========================
+  // fallback（直線）
+  // =========================
+  log("⚠ fallback line");
 
-  const geo=await loadLine(c.line);
-  if(!geo) return;
-
-  const seg=extractSegment(geo,[prev.lo,prev.la],[c.lo,c.la]);
-  if(!seg) return;
-
-  const latlngs=seg.map(p=>[p[1],p[0]]);
-
-  L.polyline(latlngs,{
-    color:"red",
-    weight:4
+  L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
+    dashArray:"6,6"
   }).addTo(map);
 }
 
