@@ -101,6 +101,10 @@ function log(...a){
   debug.innerText += a.join(" ")+"\n";
 }
 
+window.onerror = function(msg, url, line, col, err){
+  log("💥 JS ERROR:", msg, "at", line);
+};
+
 // ===== API KEY =====
 function getApiKey(){
   return localStorage.getItem("ors_key");
