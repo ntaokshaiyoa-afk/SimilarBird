@@ -62,6 +62,20 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 
 <body>
 
+<div id="apiBox" style="
+  position:fixed;
+  top:10px;
+  right:10px;
+  z-index:3000;
+  background:white;
+  padding:8px;
+  border-radius:10px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.2);
+">
+  <input id="apiKeyInput" placeholder="ORS API Key" style="width:160px;">
+  <button onclick="saveApiKey()">保存</button>
+</div>
+
 <div id="tabs" class="tabs"></div>
 <div id="list"></div>
 <div class="spacer"></div>
@@ -73,6 +87,51 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 function log(...a){
   console.log(...a);
   debug.innerText += a.join(" ")+"\n";
+}
+
+// ===== API KEY =====
+function getApiKey(){
+  return localStorage.getItem("ors_key");
+}
+
+function setApiKey(key){
+  localStorage.setItem("ors_key", key);
+}
+
+function saveApiKey(){
+  const key = apiKeyInput.value.trim();
+
+  if(!key){
+    alert("APIキーを入力してください");
+    return;
+  }
+
+  setApiKey(key);
+  alert("保存しました");
+}
+
+function initApiKey(){
+  const urlKey = new URLSearchParams(location.search).get("key");
+  const localKey = getApiKey();
+
+  // URL優先
+  if(urlKey){
+    setApiKey(urlKey);
+    apiKeyInput.value = urlKey;
+    log("🔑 API key loaded from URL");
+    return;
+  }
+
+  // localStorage
+  if(localKey){
+    apiKeyInput.value = localKey;
+    log("🔑 API key loaded from localStorage");
+    return;
+  }
+
+  // 未設定
+  log("❌ API key not set");
+  alert("ORS APIキーを入力してください");
 }
 
 // ===== LOAD =====
@@ -367,6 +426,7 @@ function updateNext(){
 }
 
 // ===== 初期 =====
+initApiKey();
 render();
 </script>
 
