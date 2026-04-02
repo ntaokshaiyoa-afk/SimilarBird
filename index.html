@@ -595,6 +595,92 @@ async function renderOverviewMap(){
   }
 }
 
+  // ===== stationGraph生成 =====
+function buildStationGraphFromGeoJSON(geo){
+  const stations = [];
+  const stationIndex = {};
+
+  // 駅抽出
+  geo.features.forEach(f=>{
+    if(f.geometry.type === "Point"){
+      const name = f.properties.name;
+      const [lng, lat] = f.geometry.coordinates;
+
+      stations.push({name, lat, lng});
+      stationIndex[name] = {lat, lng};
+    }
+  });
+
+  // 最近傍駅検索
+  function findNearestStation(coord){
+    let best = null;
+    let bestDist = Infinity;
+
+    stations.forEach(s=>{
+      const d =
+        (s.lng - coord[0])**2 +
+        (s.lat - coord[1])**2;
+
+      if(d < bestDist){
+        bestDist = d;
+        best = s.name;
+      }
+    });
+
+    return best;
+  }
+
+  const graph = {};
+
+  function addEdge(a, b, line){
+    if(!a || !b || a === b) return;
+
+    graph[a] = graph[a] || [];
+    graph[b] = graph[b] || [];
+
+    if(!graph[a].some(e=>e.to === b && e.line === line)){
+      graph[a].push({to:b, line});
+      graph[b].push({to:a, line});
+    }
+  }
+
+  geo.features.forEach(f=>{
+    const lineName =
+      f.properties?.uri?.split("/").slice(-2, -1)[0]
+      || f.properties?.name
+      || "unknown";
+
+    let lines = [];
+
+    if(f.geometry.type === "LineString"){
+      lines = [f.geometry.coordinates];
+    }else if(f.geometry.type === "MultiLineString"){
+      lines = f.geometry.coordinates;
+    }else{
+      return;
+    }
+
+    lines.forEach(coords=>{
+      let prevStation = null;
+
+      coords.forEach(p=>{
+        const station = findNearestStation(p);
+
+        if(prevStation && station && prevStation !== station){
+          addEdge(prevStation, station, lineName);
+        }
+
+        prevStation = station;
+      });
+    });
+  });
+
+  return {
+    stationGraph: graph,
+    stations
+  };
+}
+
 // ===== LOAD =====
 function loadData(){
   try{
