@@ -90,6 +90,11 @@ body{margin:0;background:#f5f5f5;font-family:sans-serif;}
 <script>
 let maps = {};
 
+// 仮想化
+let scrollTop = 0;
+const ITEM_HEIGHT = 120; // カード高さ（目安）
+const BUFFER = 5; // 前後余白
+
 // ===== LOG =====
 function log(...a){
   console.log(...a);
@@ -421,34 +426,7 @@ function renderTabs(){
 // ===== 描画 =====
 function render(){
   renderTabs();
-  list.innerHTML="";
-
-  data.d[di].c.forEach((c,i)=>{
-    const el=document.createElement("div");
-    el.className="card"+(i===openIndex?" open":"");
-
-    el.innerHTML=`
-      <div class="header">
-        ${c.station||"未設定"}<br>
-        ${c.line||"line無し"}
-      </div>
-      <div class="detail">
-        <div id="m${i}" class="map"></div>
-      </div>
-    `;
-
-    el.querySelector(".header").onclick=(e)=>{
-      e.stopPropagation();
-      openIndex=(openIndex===i?null:i);
-      render();
-    };
-
-    list.appendChild(el);
-
-    if(i===openIndex){
-      setTimeout(()=>initMap(i,c),0);
-    }
-  });
+  renderVirtual();
   
   setTimeout(prefetchRoutes, 300);
 }
@@ -666,6 +644,64 @@ function updateNext(){
     ? `次: ${nextItem.s} ${nextItem.tt||nextItem.station}`
     : "予定終了";
 }
+
+// ===== 仮想化 =====
+function renderVirtual(){
+  const cards = data.d[di]?.c || [];
+
+  const viewHeight = window.innerHeight;
+  const start = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER);
+  const end = Math.min(
+    cards.length,
+    Math.ceil((scrollTop + viewHeight) / ITEM_HEIGHT) + BUFFER
+  );
+
+  list.innerHTML = "";
+
+  // 上スペーサー
+  const topSpacer = document.createElement("div");
+  topSpacer.style.height = `${start * ITEM_HEIGHT}px`;
+  list.appendChild(topSpacer);
+
+  // 本体
+  for(let i=start;i<end;i++){
+    const c = cards[i];
+
+    const el=document.createElement("div");
+    el.className="card"+(i===openIndex?" open":"");
+
+    el.innerHTML=`
+      <div class="header">
+        ${c.station||"未設定"}<br>
+        ${c.line||"line無し"}
+      </div>
+      <div class="detail">
+        <div id="m${i}" class="map"></div>
+      </div>
+    `;
+
+    el.querySelector(".header").onclick=(e)=>{
+      e.stopPropagation();
+      openIndex=(openIndex===i?null:i);
+      render(); // 再描画
+    };
+
+    list.appendChild(el);
+
+    if(i===openIndex){
+      setTimeout(()=>initMap(i,c),0);
+    }
+  }
+
+  // 下スペーサー
+  const bottomSpacer = document.createElement("div");
+  bottomSpacer.style.height = `${(cards.length - end) * ITEM_HEIGHT}px`;
+  list.appendChild(bottomSpacer);
+}
+window.addEventListener("scroll", ()=>{
+  scrollTop = window.scrollY;
+  renderVirtual();
+});
 
 // ===== 初期 =====
 initApiKey();
