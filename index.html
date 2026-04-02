@@ -164,8 +164,6 @@ async function getRouteORS(prev, curr, mode){
   const profile = getProfile(mode);
 
   try{
-    log("🌍 ORS request:", profile);
-
     const res = await fetch(
       `https://api.openrouteservice.org/v2/directions/${profile}/geojson`,
       {
@@ -190,17 +188,63 @@ async function getRouteORS(prev, curr, mode){
 
     const geo = await res.json();
 
-    const coords = geo.features[0].geometry.coordinates
+    const coordsRaw = geo.features[0].geometry.coordinates;
+
+    // ★ 距離・時間
+    const summary = geo.features[0].properties.summary;
+
+    const distance = summary.distance; // m
+    const duration = summary.duration; // sec
+
+    // ★ 軽量化
+    const coords = simplifyCoords(coordsRaw, 5) // ←ここ重要
       .map(p=>[p[1], p[0]]);
 
-    routeCache[cacheKey] = coords;
+    const result = {
+      coords,
+      distance,
+      duration
+    };
 
-    return coords;
+    routeCache[cacheKey] = result;
+
+    return result;
 
   }catch(e){
     log("❌ ORS fetch error:", e);
     return null;
   }
+}
+
+function simplifyCoords(coords, step=5){
+  if(coords.length <= step) return coords;
+
+  const result = [];
+
+  for(let i=0; i<coords.length; i+=step){
+    result.push(coords[i]);
+  }
+
+  // 最後は必ず追加
+  result.push(coords[coords.length-1]);
+
+  return result;
+}
+
+function formatDistance(m){
+  if(m < 1000) return `${Math.round(m)}m`;
+  return `${(m/1000).toFixed(1)}km`;
+}
+
+function formatDuration(sec){
+  const min = Math.round(sec/60);
+
+  if(min < 60) return `${min}分`;
+
+  const h = Math.floor(min/60);
+  const m = min % 60;
+
+  return `${h}時間${m}分`;
 }
 
 // ===== LOAD =====
@@ -362,7 +406,6 @@ function render(){
 }
 
 // ===== 地図 =====
-// ===== 地図 =====
 async function initMap(i,c){
   log("=== initMap ===");
 
@@ -422,20 +465,25 @@ async function initMap(i,c){
     return;
   }
 
-  // =========================
-  // 🚗 ORSルート
-  // =========================
-  const route = await getRouteORS(prev, c, c.m);
+// =========================
+// 🚗 ORSルート
+// =========================
+const result = await getRouteORS(prev, c, c.m);
 
-  if(route){
-    L.polyline(route,{
-      color:"#007aff",
-      weight:4
-    }).addTo(map);
+if(result){
+  const {coords, distance, duration} = result;
 
-    log("✅ ORS route drawn");
-    return;
-  }
+  L.polyline(coords,{
+  color:getRouteColor(c.m),
+  weight:4
+}).addTo(map);
+  
+  // ★ 情報表示
+  showRouteInfo(i, distance, duration);
+
+  log("✅ ORS route drawn");
+  return;
+}
 
   // =========================
   // fallback（直線）
@@ -465,6 +513,37 @@ function autoScroll(){
   const el=document.querySelectorAll(".card")[openIndex];
   if(el){
     el.scrollIntoView({behavior:"smooth",block:"center"});
+  }
+}
+
+function showRouteInfo(index, distance, duration){
+  const cards = document.querySelectorAll(".card");
+  const card = cards[index];
+
+  if(!card) return;
+
+  let info = card.querySelector(".routeInfo");
+
+  if(!info){
+    info = document.createElement("div");
+    info.className = "routeInfo";
+    info.style.fontSize = "12px";
+    info.style.marginTop = "4px";
+    info.style.color = "#555";
+
+    card.querySelector(".header").appendChild(info);
+  }
+
+  info.innerText =
+    `${formatDistance(distance)} / ${formatDuration(duration)}`;
+}
+
+function getRouteColor(mode){
+  switch(mode){
+    case "walk": return "green";
+    case "car": return "#007aff";
+    case "bike": return "orange";
+    default: return "#007aff";
   }
 }
 
