@@ -582,9 +582,6 @@ async function initMap(i,c){
 
   let map = maps[i];
 
-  // =========================
-  // ★ 初回だけ生成
-  // =========================
   if(!map){
     map = L.map(`m${i}`,{
       dragging:true,
@@ -598,11 +595,9 @@ async function initMap(i,c){
 
     const container = map.getContainer();
 
-    // --- カード閉じ防止 ---
     container.addEventListener("click", e=>e.stopPropagation());
     container.addEventListener("touchstart", e=>e.stopPropagation(), {passive:true});
 
-    // --- スクロール制御 ---
     container.addEventListener("touchstart", ()=>lockBodyScroll(true), {passive:true});
     container.addEventListener("touchend", ()=>lockBodyScroll(false));
     container.addEventListener("touchcancel", ()=>lockBodyScroll(false));
@@ -614,13 +609,13 @@ async function initMap(i,c){
     maps[i] = map;
   }
 
-  // =========================
-  // ★ 表示更新だけ
-  // =========================
+  // 👇 ここが超重要（表示後にサイズ再計算）
+  setTimeout(()=>{
+    map.invalidateSize();
+  }, 0);
 
   map.setView([c.la||35,c.lo||139],13);
 
-  // ★ 前回のレイヤ削除
   map.eachLayer(layer=>{
     if(!(layer instanceof L.TileLayer)){
       map.removeLayer(layer);
@@ -632,15 +627,7 @@ async function initMap(i,c){
   L.marker([c.la,c.lo]).addTo(map);
 
   const prev=data.d[di].c[i-1];
-
-  if(!prev || !prev.la){
-    log("no prev");
-    return;
-  }
-
-  // =========================
-  // 🚗 ORS or fallback
-  // =========================
+  if(!prev || !prev.la) return;
 
   if(c.m!=="train"){
     showLoading(i);
@@ -650,19 +637,15 @@ async function initMap(i,c){
     hideLoading(i);
 
     if(result){
-      const {coords, distance, duration} = result;
-
-      L.polyline(coords,{
+      L.polyline(result.coords,{
         color:getRouteColor(c.m),
         weight:4
       }).addTo(map);
 
-      showRouteInfo(i, distance, duration);
-
+      showRouteInfo(i, result.distance, result.duration);
       return;
     }
 
-    // fallback
     L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
       dashArray:"6,6"
     }).addTo(map);
@@ -670,14 +653,9 @@ async function initMap(i,c){
     return;
   }
 
-  // =========================
-  // 🚃 train
-  // =========================
-
   if(!c.line){
     c.line = prev.line;
   }
-
   if(!c.line) return;
 
   const geo=await loadLine(c.line);
@@ -686,9 +664,7 @@ async function initMap(i,c){
   const seg=extractSegment(geo,[prev.lo,prev.la],[c.lo,c.la]);
   if(!seg) return;
 
-  const latlngs=seg.map(p=>[p[1],p[0]]);
-
-  L.polyline(latlngs,{
+  L.polyline(seg.map(p=>[p[1],p[0]]),{
     color:"red",
     weight:4
   }).addTo(map);
@@ -811,7 +787,7 @@ function renderVirtual(){
     list.appendChild(el);
 
     if(i===openIndex){
-      setTimeout(()=>initMap(i,c),0);
+      setTimeout(()=>initMap(i,c),50);
     }
   }
 
