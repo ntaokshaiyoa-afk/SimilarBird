@@ -368,26 +368,35 @@ async function buildFullRoute(){
       // 🚨 乗り換え検知
       if(prevLine && currLine && prevLine !== currLine){
         log("transfer:", prevLine, "->", currLine);
-    
-        // 👉 徒歩ルートで補完
-        const result = await getRouteORS(prev, curr, "walk");
-    
-        if(result){
+      
+        // 👇 ここを変更
+        const coords = await buildTrainRoute(prev, curr);
+      
+        if(coords && coords.length){
           routes.push({
-            type:"transfer",
-            coords: result.coords
+            type: "train",
+            coords: coords
           });
         }else{
-          // fallback
-          routes.push({
-            type:"fallback",
-            coords: [
-              [prev.la, prev.lo],
-              [curr.la, curr.lo]
-            ]
-          });
+          // fallback（最悪だけ徒歩）
+          const result = await getRouteORS(prev, curr, "walk");
+      
+          if(result){
+            routes.push({
+              type:"transfer",
+              coords: result.coords
+            });
+          }else{
+            routes.push({
+              type:"fallback",
+              coords: [
+                [prev.la, prev.lo],
+                [curr.la, curr.lo]
+              ]
+            });
+          }
         }
-    
+      
         continue;
       }
     
