@@ -580,8 +580,99 @@ function loadFromURL(){
   }
 }
 
+  function findRoute(fromName, toName){
+  const queue = [{name: fromName, path: []}];
+  const visited = new Set();
+
+  while(queue.length){
+    const curr = queue.shift();
+
+    if(curr.name === toName){
+      return curr.path;
+    }
+
+    if(visited.has(curr.name)) continue;
+    visited.add(curr.name);
+
+    const edges = stationGraph[curr.name] || [];
+
+    edges.forEach(e=>{
+      queue.push({
+        name: e.to,
+        path: [...curr.path, {
+          from: curr.name,
+          to: e.to,
+          line: e.line
+        }]
+      });
+    });
+  }
+
+  return null;
+}
+
+  let stationGraph = {};
+
+function buildStationGraph(){
+  stationGraph = {};
+
+  stations.forEach(s=>{
+    stationGraph[s.name] = [];
+  });
+
+  // 同一路線の駅同士を接続
+  stations.forEach(s1=>{
+    stations.forEach(s2=>{
+      if(s1 === s2) return;
+
+      // 同じ路線を持ってるなら接続
+      const common = s1.lines?.find(l=>s2.lines?.includes(l));
+      if(common){
+        stationGraph[s1.name].push({
+          to: s2.name,
+          line: common
+        });
+      }
+    });
+  });
+
+  log("✅ graph built");
+}
+
+  function findRoute(fromName, toName){
+  const queue = [{name: fromName, path: []}];
+  const visited = new Set();
+
+  while(queue.length){
+    const curr = queue.shift();
+
+    if(curr.name === toName){
+      return curr.path;
+    }
+
+    if(visited.has(curr.name)) continue;
+    visited.add(curr.name);
+
+    const edges = stationGraph[curr.name] || [];
+
+    edges.forEach(e=>{
+      queue.push({
+        name: e.to,
+        path: [...curr.path, {
+          from: curr.name,
+          to: e.to,
+          line: e.line
+        }]
+      });
+    });
+  }
+
+  return null;
+}
+
 async function init(){
   await loadStationsFromGeoJSON();
+  buildStationGraph(); 
   render();
 }
 
