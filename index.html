@@ -544,39 +544,78 @@
         return coords
       }
 
-      function findRoute(fromName, toName) {
-        const queue = [{ name: fromName, path: [] }]
-        const visited = new Set()
+      function findRoute(fromName, toName){
+  const distMap = {};
+  const prevMap = {};
+  const visited = new Set();
 
-        while (queue.length) {
-          const curr = queue.shift()
+  // 優先度キュー（簡易）
+  const queue = [];
 
-          if (curr.name === toName) {
-            return curr.path
-          }
+  distMap[fromName] = 0;
+  queue.push({
+    name: fromName,
+    cost: 0,
+    line: null
+  });
 
-          if (visited.has(curr.name)) continue
-          visited.add(curr.name)
+  while(queue.length){
+    // 最小コスト取り出し
+    queue.sort((a,b)=>a.cost-b.cost);
+    const curr = queue.shift();
 
-          const edges = stationGraph[curr.name] || []
+    if(visited.has(curr.name)) continue;
+    visited.add(curr.name);
 
-          edges.forEach((e) => {
-            queue.push({
-              name: e.to,
-              path: [
-                ...curr.path,
-                {
-                  from: curr.name,
-                  to: e.to,
-                  line: e.line,
-                },
-              ],
-            })
-          })
-        }
+    if(curr.name === toName){
+      break;
+    }
 
-        return null
+    const edges = stationGraph[curr.name] || [];
+
+    edges.forEach(e=>{
+      const transferPenalty =
+        curr.line && curr.line !== e.line ? 0.02 : 0; // ←調整可
+
+      const newCost =
+        curr.cost + e.dist + transferPenalty;
+
+      if(distMap[e.to] === undefined || newCost < distMap[e.to]){
+        distMap[e.to] = newCost;
+
+        prevMap[e.to] = {
+          from: curr.name,
+          line: e.line
+        };
+
+        queue.push({
+          name: e.to,
+          cost: newCost,
+          line: e.line
+        });
       }
+    });
+  }
+
+  // ===== 経路復元 =====
+  const path = [];
+  let cur = toName;
+
+  while(cur !== fromName){
+    const prev = prevMap[cur];
+    if(!prev) return null;
+
+    path.unshift({
+      from: prev.from,
+      to: cur,
+      line: prev.line
+    });
+
+    cur = prev.from;
+  }
+
+  return path;
+}
 
       let overviewMap
 
@@ -643,6 +682,31 @@
             stationIndex[name] = { lat, lng }
           }
         })
+
+        function calcDist(a, b){
+          const dx = a.lng - b.lng;
+          const dy = a.lat - b.lat;
+          return Math.sqrt(dx*dx + dy*dy);
+        }
+        
+        function addEdge(a, b, line){
+          if(!a || !b || a === b) return;
+        
+          graph[a] = graph[a] || [];
+          graph[b] = graph[b] || [];
+        
+          const sa = stationIndex[a];
+          const sb = stationIndex[b];
+        
+          if(!sa || !sb) return;
+        
+          const dist = calcDist(sa, sb);
+        
+          if(!graph[a].some(e=>e.to === b && e.line === line)){
+            graph[a].push({to:b, line, dist});
+            graph[b].push({to:a, line, dist});
+          }
+        }
 
         // 最近傍駅検索
         function findNearestStation(coord) {
