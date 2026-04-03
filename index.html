@@ -159,7 +159,7 @@
 
     <script>
       let maps = {}
-      const lineFileIndex = {};
+      const lineFileIndex = {}
 
       // 仮想化
       let scrollTop = 0
@@ -748,43 +748,43 @@
           .replaceAll('線', '線') // 将来拡張用
       }
 
-      async function loadLine(name){
-        if(!name){
-          log("❌ line missing");
-          return null;
+      async function loadLine(name) {
+        if (!name) {
+          log('❌ line missing')
+          return null
         }
-      
-        name = normalizeLineName(name);
-      
+
+        name = normalizeLineName(name)
+
         // 👇 追加：ファイル名解決
-        const file = lineFileIndex[name]
-          || Object.keys(lineFileIndex).find(k => name.includes(k))
-          || Object.keys(lineFileIndex).find(k => k.includes(name));
-      
-        if(!file){
-          log("❌ line file not found:", name);
-          return null;
+        const file =
+          lineFileIndex[name] ||
+          Object.keys(lineFileIndex).find((k) => name.includes(k)) ||
+          Object.keys(lineFileIndex).find((k) => k.includes(name))
+
+        if (!file) {
+          log('❌ line file not found:', name)
+          return null
         }
-      
-        if(lineCache[file]) return lineCache[file];
-      
-        try{
-          log("📥 load:", file);
-      
-          const res = await fetch(`./lines/${file}`);
-      
-          if(!res.ok){
-            log("❌ geojson not found:", file);
-            return null;
+
+        if (lineCache[file]) return lineCache[file]
+
+        try {
+          log('📥 load:', file)
+
+          const res = await fetch(`./lines/${file}`)
+
+          if (!res.ok) {
+            log('❌ geojson not found:', file)
+            return null
           }
-      
-          const geo = await res.json();
-          lineCache[file] = geo;
-          return geo;
-      
-        }catch(e){
-          log("❌ load error:", file, e);
-          return null;
+
+          const geo = await res.json()
+          lineCache[file] = geo
+          return geo
+        } catch (e) {
+          log('❌ load error:', file, e)
+          return null
         }
       }
 
@@ -848,7 +848,6 @@
       // ===== タブ =====
       function renderTabs() {
         tabs.innerHTML = ''
-
         ;(data.d || []).forEach((d, i) => {
           const b = document.createElement('button')
           b.innerText = d.dt
@@ -1169,54 +1168,51 @@
 
       async function initStationGraph() {
         const files = [
-          "京成電鉄京成成田空港線.geojson",
-          "北総鉄道北総線.geojson",
-          "新京成電鉄京成松戸線.geojson",
-          "東日本旅客鉄道中央線.geojson",
-          "東日本旅客鉄道京葉線.geojson",
-          "東日本旅客鉄道武蔵野線.geojson",
-          "東日本旅客鉄道総武本線.geojson",
-          "東日本旅客鉄道青梅線.geojson"
-        ];
-      
-        window.stationGraph = {};
-        window.stations = [];
-      
+          '京成電鉄京成成田空港線.geojson',
+          '北総鉄道北総線.geojson',
+          '新京成電鉄京成松戸線.geojson',
+          '東日本旅客鉄道中央線.geojson',
+          '東日本旅客鉄道京葉線.geojson',
+          '東日本旅客鉄道武蔵野線.geojson',
+          '東日本旅客鉄道総武本線.geojson',
+          '東日本旅客鉄道青梅線.geojson',
+        ]
+
+        window.stationGraph = {}
+        window.stations = []
+
         // 👇 ここ追加：ファイルインデックス構築
-        files.forEach(file => {
-          const name = file.replace(".geojson", "");
-      
+        files.forEach((file) => {
+          const name = file.replace('.geojson', '')
+
           // 完全一致
-          lineFileIndex[name] = file;
-      
+          lineFileIndex[name] = file
+
           // 部分一致用（路線名だけでも引けるように）
-          const short = name.replace(/^(東日本旅客鉄道|京成電鉄|北総鉄道|新京成電鉄)/, "");
-          lineFileIndex[short] = file;
-        });
-      
+          const short = name.replace(/^(東日本旅客鉄道|京成電鉄|北総鉄道|新京成電鉄)/, '')
+          lineFileIndex[short] = file
+        })
+
         for (const file of files) {
           try {
-            log("📥 loading:", file);
-      
-            const geo = await fetch(`./lines/${file}`)
-              .then(r => r.json());
-      
-            const { stationGraph: g, stations: s } =
-              buildStationGraphFromGeoJSON(geo);
-      
-            Object.keys(g).forEach(k => {
-              stationGraph[k] = stationGraph[k] || [];
-              stationGraph[k].push(...g[k]);
-            });
-      
-            stations.push(...s);
-      
+            log('📥 loading:', file)
+
+            const geo = await fetch(`./lines/${file}`).then((r) => r.json())
+
+            const { stationGraph: g, stations: s } = buildStationGraphFromGeoJSON(geo)
+
+            Object.keys(g).forEach((k) => {
+              stationGraph[k] = stationGraph[k] || []
+              stationGraph[k].push(...g[k])
+            })
+
+            stations.push(...s)
           } catch (e) {
-            log("❌ load failed:", file, e);
+            log('❌ load failed:', file, e)
           }
         }
-      
-        log("✅ stationGraph ready", Object.keys(stationGraph).length);
+
+        log('✅ stationGraph ready', Object.keys(stationGraph).length)
       }
 
       // ===== 初期 =====
