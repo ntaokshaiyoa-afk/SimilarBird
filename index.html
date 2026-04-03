@@ -574,7 +574,7 @@
           const edges = stationGraph[curr.name] || []
 
           edges.forEach((e) => {
-            const transferPenalty = curr.line && curr.line !== e.line ? 0.02 : 0 // ←調整可
+            const transferPenalty = curr.line && curr.line !== e.line ? 0.01 : 0 // ←調整可
 
             const newCost = curr.cost + e.dist + transferPenalty
 
