@@ -645,10 +645,12 @@ function buildStationGraphFromGeoJSON(geo){
   }
 
   geo.features.forEach(f=>{
-    const lineName =
-      f.properties?.uri?.split("/").slice(-2, -1)[0]
-      || f.properties?.name
-      || "unknown";
+    let lineName = f.properties?.name;
+    
+    if(!lineName || !lineName.includes("線")){
+      const parts = f.properties?.uri?.split("/") || [];
+      lineName = parts[parts.length - 2];
+    }
 
     let lines = [];
 
