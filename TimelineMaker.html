@@ -1,313 +1,360 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
 
-<script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
-<script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+    <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-<style>
-body{margin:0;background:#f5f5f5;font-family:sans-serif;}
-.top{position:sticky;top:0;background:white;padding:10px;z-index:10;}
-.card{
-  background:white;
-  margin:10px auto;
-  padding:10px;
-  border-radius:12px;
-  width:80%;
-  font-size:14px;
-}
-
-/* トースト通知 */
-#toast{
-  position:fixed;
-  bottom:20px;
-  left:50%;
-  transform:translateX(-50%);
-  background:#333;
-  color:white;
-  padding:10px 16px;
-  border-radius:20px;
-  opacity:0;
-  transition:0.3s;
-  z-index:3000;
-}
-#toast.show{
-  opacity:1;
-}
-#editor{position:fixed;top:5%;left:5%;right:5%;background:white;padding:12px;border-radius:12px;display:none;z-index:100;}
-#map{height:200px;margin-top:10px;}
-.md{background:#fafafa;padding:8px;margin-top:6px;border-radius:8px;}
-#debug{position:fixed;bottom:0;background:#000;color:#0f0;font-size:10px;width:100%;max-height:120px;overflow:auto;}
-button{margin:2px;}
-  .drag{
-  font-size:18px;
-  padding:6px 10px;
-  cursor:grab;
-  user-select:none;
-}
-.drag:active{
-  cursor:grabbing;
-}
-  .sortable-chosen{
-  opacity:0.6;
-}
-</style>
-</head>
-
-<body>
-
-<div class="top">
-<button onclick="newData()">🆕</button>
-<button onclick="addDay()">＋日</button>
-<button onclick="deleteDay()">－日</button>
-<button onclick="addCard('a')">＋観光</button>
-<button onclick="addCard('m')">＋移動</button>
-
-<button onclick="generate()">URL</button>
-<button onclick="copy()">コピー</button>
-<button onclick="makeQR()">QR</button>
-
-<input id="loadUrl" placeholder="URL">
-<button onclick="loadFromURL()">読込</button>
-</div>
-
-<div id="tabs"></div>
-<div id="list"></div>
-
-<div id="editor">
-<input id="title" placeholder="タイトル"><br>
-<input id="start" placeholder="09:00">
-<input id="end" placeholder="10:00">
-
-<select id="mode">
-<option value="car">🚗</option>
-<option value="train">🚃</option>
-<option value="walk">🚶</option>
-<option value="a">🎯</option>
-</select>
-
-<textarea id="comment"></textarea>
-
-<div id="map"></div>
-<div id="stationInfo"></div>
-
-<button onclick="saveEdit()">保存</button>
-<button onclick="deleteCard()">削除</button>
-</div>
-
-<div id="out"></div>
-<canvas id="qr"></canvas>
-<div id="toast"></div>
-<div id="modal" style="
-  position:fixed;top:0;left:0;width:100%;height:100%;
-  background:rgba(0,0,0,0.4);
-  display:none;align-items:center;justify-content:center;
-  z-index:4000;
-">
-  <div style="
-    background:white;
-    padding:20px;
-    border-radius:12px;
-    width:80%;
-    max-width:300px;
-    text-align:center;
-  ">
-    <div id="modalText" style="margin-bottom:15px;"></div>
-    <button onclick="modalOk()">OK</button>
-    <button onclick="modalCancel()">キャンセル</button>
-  </div>
-</div>
-<div id="debug"></div>
-
-<script>
-// ===== 確認 =====
-let modalCallback=null;
-
-function confirmModal(message, callback){
-  modalText.innerText=message;
-  modal.style.display="flex";
-  modalCallback=callback;
-}
-
-function modalOk(){
-  modal.style.display="none";
-  if(modalCallback) modalCallback();
-}
-
-function modalCancel(){
-  modal.style.display="none";
-}
-  
-// ===== トースト通知 =====
-function showToast(msg){
-  const t=document.getElementById("toast");
-  t.innerText=msg;
-  t.classList.add("show");
-
-  setTimeout(()=>{
-    t.classList.remove("show");
-  },2000);
-}
-
-// ===== ログ =====
-function log(...a){
-  console.log(...a);
-  debug.innerText+=a.join(" ")+"\n";
-}
-
-// ===== 状態 =====
-let data=load();
-let di=0, ei=null;
-let map, marker;
-let stations=[];
-  let sortable = null;
-
-  function load(){
-  try{
-    const d = JSON.parse(localStorage.getItem("sb"));
-
-    // ★完全ガード
-    if(!d || !d.d || !Array.isArray(d.d)){
-      throw "invalid data";
-    }
-
-    return d;
-
-  }catch{
-    return {d:[{dt:"1日目",c:[]}]};
-  }
-}
-
-// ===== GeoJsonから駅情報を読み取り =====
-const lineList = [
-  "東日本旅客鉄道中央線",
-  "東日本旅客鉄道武蔵野線",
-  "東日本旅客鉄道青梅線",
-  "東日本旅客鉄道京葉線",
-  "東日本旅客鉄道総武本線",
-  "新京成電鉄京成松戸線",
-  "京成電鉄京成成田空港線",
-  "北総鉄道北総線"
-];
-
-async function loadStationsFromGeoJSON(){
-  const map = {}; // name -> station
-
-  for(const lineName of lineList){
-    try{
-      log("📥 load line:", lineName);
-
-      const res = await fetch(`./lines/${lineName}.geojson`);
-      if(!res.ok){
-        log("❌ not found:", lineName);
-        continue;
+    <style>
+      body {
+        margin: 0;
+        background: #f5f5f5;
+        font-family: sans-serif;
+      }
+      .top {
+        position: sticky;
+        top: 0;
+        background: white;
+        padding: 10px;
+        z-index: 10;
+      }
+      .card {
+        background: white;
+        margin: 10px auto;
+        padding: 10px;
+        border-radius: 12px;
+        width: 80%;
+        font-size: 14px;
       }
 
-      const geo = await res.json();
+      /* トースト通知 */
+      #toast {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #333;
+        color: white;
+        padding: 10px 16px;
+        border-radius: 20px;
+        opacity: 0;
+        transition: 0.3s;
+        z-index: 3000;
+      }
+      #toast.show {
+        opacity: 1;
+      }
+      #editor {
+        position: fixed;
+        top: 5%;
+        left: 5%;
+        right: 5%;
+        background: white;
+        padding: 12px;
+        border-radius: 12px;
+        display: none;
+        z-index: 100;
+      }
+      #map {
+        height: 200px;
+        margin-top: 10px;
+      }
+      .md {
+        background: #fafafa;
+        padding: 8px;
+        margin-top: 6px;
+        border-radius: 8px;
+      }
+      #debug {
+        position: fixed;
+        bottom: 0;
+        background: #000;
+        color: #0f0;
+        font-size: 10px;
+        width: 100%;
+        max-height: 120px;
+        overflow: auto;
+      }
+      button {
+        margin: 2px;
+      }
+      .drag {
+        font-size: 18px;
+        padding: 6px 10px;
+        cursor: grab;
+        user-select: none;
+      }
+      .drag:active {
+        cursor: grabbing;
+      }
+      .sortable-chosen {
+        opacity: 0.6;
+      }
+    </style>
+  </head>
 
-      geo.features.forEach(f=>{
-        // ★駅名取得（ここはGeoJSON仕様に依存）
-        const name =
-          f.properties?.station ||
-          f.properties?.name ||
-          f.properties?.N02_005;
+  <body>
+    <div class="top">
+      <button onclick="newData()">🆕</button>
+      <button onclick="addDay()">＋日</button>
+      <button onclick="deleteDay()">－日</button>
+      <button onclick="addCard('a')">＋観光</button>
+      <button onclick="addCard('m')">＋移動</button>
 
-        if(!name) return;
+      <button onclick="generate()">URL</button>
+      <button onclick="copy()">コピー</button>
+      <button onclick="makeQR()">QR</button>
 
-        let coord = null;
+      <input id="loadUrl" placeholder="URL" />
+      <button onclick="loadFromURL()">読込</button>
+    </div>
 
-        if(f.geometry.type === "Point"){
-          coord = f.geometry.coordinates;
+    <div id="tabs"></div>
+    <div id="list"></div>
+
+    <div id="editor">
+      <input id="title" placeholder="タイトル" /><br />
+      <input id="start" placeholder="09:00" />
+      <input id="end" placeholder="10:00" />
+
+      <select id="mode">
+        <option value="car">🚗</option>
+        <option value="train">🚃</option>
+        <option value="walk">🚶</option>
+        <option value="a">🎯</option>
+      </select>
+
+      <textarea id="comment"></textarea>
+
+      <div id="map"></div>
+      <div id="stationInfo"></div>
+
+      <button onclick="saveEdit()">保存</button>
+      <button onclick="deleteCard()">削除</button>
+    </div>
+
+    <div id="out"></div>
+    <canvas id="qr"></canvas>
+    <div id="toast"></div>
+    <div
+      id="modal"
+      style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.4);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 4000;
+      "
+    >
+      <div
+        style="
+          background: white;
+          padding: 20px;
+          border-radius: 12px;
+          width: 80%;
+          max-width: 300px;
+          text-align: center;
+        "
+      >
+        <div id="modalText" style="margin-bottom: 15px"></div>
+        <button onclick="modalOk()">OK</button>
+        <button onclick="modalCancel()">キャンセル</button>
+      </div>
+    </div>
+    <div id="debug"></div>
+
+    <script>
+      // ===== 確認 =====
+      let modalCallback = null
+
+      function confirmModal(message, callback) {
+        modalText.innerText = message
+        modal.style.display = 'flex'
+        modalCallback = callback
+      }
+
+      function modalOk() {
+        modal.style.display = 'none'
+        if (modalCallback) modalCallback()
+      }
+
+      function modalCancel() {
+        modal.style.display = 'none'
+      }
+
+      // ===== トースト通知 =====
+      function showToast(msg) {
+        const t = document.getElementById('toast')
+        t.innerText = msg
+        t.classList.add('show')
+
+        setTimeout(() => {
+          t.classList.remove('show')
+        }, 2000)
+      }
+
+      // ===== ログ =====
+      function log(...a) {
+        console.log(...a)
+        debug.innerText += a.join(' ') + '\n'
+      }
+
+      // ===== 状態 =====
+      let data = load()
+      let di = 0,
+        ei = null
+      let map, marker
+      let stations = []
+      let sortable = null
+
+      function load() {
+        try {
+          const d = JSON.parse(localStorage.getItem('sb'))
+
+          // ★完全ガード
+          if (!d || !d.d || !Array.isArray(d.d)) {
+            throw 'invalid data'
+          }
+
+          return d
+        } catch {
+          return { d: [{ dt: '1日目', c: [] }] }
+        }
+      }
+
+      // ===== GeoJsonから駅情報を読み取り =====
+      const lineList = [
+        '東日本旅客鉄道中央線',
+        '東日本旅客鉄道武蔵野線',
+        '東日本旅客鉄道青梅線',
+        '東日本旅客鉄道京葉線',
+        '東日本旅客鉄道総武本線',
+        '新京成電鉄京成松戸線',
+        '京成電鉄京成成田空港線',
+        '北総鉄道北総線',
+      ]
+
+      async function loadStationsFromGeoJSON() {
+        const map = {} // name -> station
+
+        for (const lineName of lineList) {
+          try {
+            log('📥 load line:', lineName)
+
+            const res = await fetch(`./lines/${lineName}.geojson`)
+            if (!res.ok) {
+              log('❌ not found:', lineName)
+              continue
+            }
+
+            const geo = await res.json()
+
+            geo.features.forEach((f) => {
+              // ★駅名取得（ここはGeoJSON仕様に依存）
+              const name = f.properties?.station || f.properties?.name || f.properties?.N02_005
+
+              if (!name) return
+
+              let coord = null
+
+              if (f.geometry.type === 'Point') {
+                coord = f.geometry.coordinates
+              }
+
+              // LineStringしかない場合はスキップ（後で拡張可）
+              if (!coord) return
+
+              const lng = coord[0]
+              const lat = coord[1]
+
+              if (!map[name]) {
+                map[name] = {
+                  name,
+                  lat,
+                  lng,
+                  lines: [],
+                }
+              }
+
+              map[name].lines.push(lineName)
+            })
+          } catch (e) {
+            log('❌ load error:', lineName, e)
+          }
         }
 
-        // LineStringしかない場合はスキップ（後で拡張可）
-        if(!coord) return;
+        stations = Object.values(map)
 
-        const lng = coord[0];
-        const lat = coord[1];
+        log('✅ stations from geojson:', stations.length)
+      }
 
-        if(!map[name]){
-          map[name] = {
-            name,
-            lat,
-            lng,
-            lines:[]
-          };
+      // ===== 保存 =====
+      function save() {
+        localStorage.setItem('sb', JSON.stringify(data))
+      }
+      function load() {
+        try {
+          const d = JSON.parse(localStorage.getItem('sb'))
+
+          // ★完全ガード
+          if (!d || !d.d || !Array.isArray(d.d)) {
+            throw 'invalid data'
+          }
+
+          return d
+        } catch {
+          return { d: [{ dt: '1日目', c: [] }] }
+        }
+      }
+
+      // ===== タブ =====
+      function renderTabs() {
+        tabs.innerHTML = ''
+        data.d.forEach((d, i) => {
+          const b = document.createElement('button')
+          b.innerText = d.dt
+          b.onclick = () => {
+            di = i
+            render()
+          }
+          tabs.appendChild(b)
+        })
+      }
+
+      // ===== 描画 =====
+      function render() {
+        if (!data || !data.d) {
+          log('❌ data broken, reset')
+          data = { d: [{ dt: '1日目', c: [] }] }
         }
 
-        map[name].lines.push(lineName);
-      });
+        renderTabs()
+        list.innerHTML = ''
 
-    }catch(e){
-      log("❌ load error:", lineName, e);
-    }
-  }
+        const cards = data.d[di]?.c || []
 
-  stations = Object.values(map);
+        cards.forEach((c, i) => {
+          const el = document.createElement('div')
+          el.className = 'card'
 
-  log("✅ stations from geojson:", stations.length);
-}
-
-// ===== 保存 =====
-function save(){
-  localStorage.setItem("sb", JSON.stringify(data));
-}
-function load(){
-  try{
-    const d = JSON.parse(localStorage.getItem("sb"));
-
-    // ★完全ガード
-    if(!d || !d.d || !Array.isArray(d.d)){
-      throw "invalid data";
-    }
-
-    return d;
-
-  }catch{
-    return {d:[{dt:"1日目",c:[]}]};
-  }
-}
-
-// ===== タブ =====
-function renderTabs(){
-  tabs.innerHTML="";
-  data.d.forEach((d,i)=>{
-    const b=document.createElement("button");
-    b.innerText=d.dt;
-    b.onclick=()=>{di=i;render();}
-    tabs.appendChild(b);
-  });
-}
-
-// ===== 描画 =====
-function render(){
-  if(!data || !data.d){
-    log("❌ data broken, reset");
-    data={d:[{dt:"1日目",c:[]}]};
-  }
-
-  renderTabs();
-  list.innerHTML="";
-
-  const cards=data.d[di]?.c || [];
-
-  cards.forEach((c,i)=>{
-    const el=document.createElement("div");
-    el.className="card";
-
-    el.innerHTML=`
+          el.innerHTML = `
       <div style="display:flex; align-items:center;">
         <div style="flex:1;">
-          <b>${c.s||""}-${c.e||""}</b><br>
-          ${c.tt||""}
-          <div>${c.station||""}</div>
+          <b>${c.s || ''}-${c.e || ''}</b><br>
+          ${c.tt || ''}
+          <div>${c.station || ''}</div>
         </div>
         <div class="drag">☰</div>
       </div>
@@ -316,368 +363,373 @@ function render(){
         <button onclick="edit(${i});event.stopPropagation()">編集</button>
         <button onclick="deleteCard(${i});event.stopPropagation()">削除</button>
       </div>
-    `;
-
-    list.appendChild(el);
-  });
-
-  // ★既存Sortable破棄
-  if(sortable){
-    sortable.destroy();
-  }
-
-  // ★ハンドル限定ドラッグ
-  sortable = new Sortable(list,{
-    animation:150,
-    handle: ".drag",
-    onEnd:e=>{
-      const item=cards.splice(e.oldIndex,1)[0];
-      cards.splice(e.newIndex,0,item);
-      save();
-    }
-  });
-
-  save();
-}
-
-// ===== 新規 =====
-function newData(){
-  confirmModal("リセットしますか？", ()=>{
-    data={d:[{dt:"1日目",c:[]}]};
-    render();
-    showToast("新規作成しました");
-  });
-}
-
-// ===== 追加 =====
-function addDay(){
-  data.d.push({dt:`${data.d.length+1}日目`,c:[]});
-  di=data.d.length-1;
-  render();
-}
-
-function addCard(type){
-  const c={t:type,s:"09:00",e:"10:00"};
-  if(type==="m") c.m="train";
-  data.d[di].c.push(c);
-  render();
-}
-
-// ===== 編集 =====
-function edit(i){
-  ei=i;
-  const c=data.d[di].c[i];
-
-  if(!c) return;
-
-  editor.style.display="block";
-
-  title.value=c.tt||"";
-  start.value=c.s||"";
-  end.value=c.e||"";
-  mode.value=c.m||"a";
-  comment.value=c.cm||"";
-
-  initMap(c);
-}
-
-function normalizeLineName(name){
-  if(!name) return null;
-
-  return name
-    .replace("JR中央線", "東日本旅客鉄道中央線")
-    .replace("中央線", "東日本旅客鉄道中央線")
-    .replace("武蔵野線", "東日本旅客鉄道武蔵野線")
-    .replace("青梅線", "東日本旅客鉄道青梅線")
-    .replace("京葉線", "東日本旅客鉄道京葉線");
-}
-  
-// ===== 路線選択 =====
-function chooseLine(prev, st){
-  if(!st.lines) return null;
-
-  let line = null;
-
-  if(prev && prev.line){
-    const m = st.lines.find(l=>l===prev.line);
-    if(m) line = m;
-  }
-
-  if(!line){
-    line = st.lines[0];
-  }
-
-  return normalizeLineName(line); // ★ここ重要
-}
-
-// ===== 地図 =====
-function initMap(c){
-  if(map) map.remove();
-
-  map=L.map("map").setView([c.la||35.7708,c.lo||139.9438],13);
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-  if(c.la){
-    marker=L.marker([c.la,c.lo]).addTo(map);
-  }
-
-  map.on("click",e=>{
-    const st=nearest(e.latlng.lat,e.latlng.lng);
-
-    if(!st){
-      stationInfo.innerText="駅見つからず";
-      return;
-    }
-
-    if(marker) marker.remove();
-    marker=L.marker([st.lat,st.lng]).addTo(map);
-
-    const card=data.d[di].c[ei];
-    const prev=data.d[di].c[ei-1];
-
-    card.la=st.lat;
-    card.lo=st.lng;
-    card.station=st.name;
-
-    // ★ここが重要
-    card.line = chooseLine(prev, st);
-
-    log("SET station:", st.name);
-    log("SET line:", card.line);
-
-    stationInfo.innerText=`${st.name} / ${card.line}`;
-  });
-}
-
-// ===== 最寄駅 =====
-function nearest(lat,lng){
-  let best=null, bestDist=Infinity;
-
-  for(const s of stations){
-    const d=(s.lat-lat)**2+(s.lng-lng)**2;
-    if(d<bestDist){
-      bestDist=d;
-      best=s;
-    }
-  }
-
-  return best;
-}
-
-// ===== 保存 =====
-function saveEdit(){
-  const c=data.d[di].c[ei];
-
-  c.tt=title.value;
-  c.s=start.value;
-  c.e=end.value;
-  c.m=mode.value;
-  c.cm=comment.value;
-
-  // ★ line補完（超重要）
-  if(c.m==="train" && !c.line){
-    const st = stations.find(s=>s.name===c.station);
-    if(st && st.lines && st.lines.length>0){
-      c.line = st.lines[0];
-      c.line = normalizeLineName(c.line);
-      log("補完 line:", c.line);
-    }else{
-      log("❌ line補完失敗");
-    }
-  }
-
-  editor.style.display="none";
-  render();
-}
-
-// ===== 削除 =====
-function deleteDay(){
-  if(data.d.length<=1){
-    showToast("最後の1日は削除できません");
-    return;
-  }
-
-  confirmModal("この日を削除しますか？", ()=>{
-    data.d.splice(di,1);
-    di=Math.max(0,di-1);
-    render();
-    showToast("日を削除しました");
-  });
-}
-
-function deleteCard(i){
-  confirmModal("削除しますか？", ()=>{
-    data.d[di].c.splice(i,1);
-    render();
-    showToast("カード削除しました");
-  });
-}
-  
-// ===== URL =====
-let url="";
-function generate(){
-  const d=LZString.compressToEncodedURIComponent(JSON.stringify(data));
-  url="https://ntaokshaiyoa-afk.github.io/SimilarBird/?d="+d;
-
-  out.innerText=url;
-  log("URL生成:",url);
-
-  return url;
-}
-
-function copy(){
-  // 毎回必ず最新URL生成（超重要）
-  const url = generate();
-
-  try{
-    // ★同期的に実行（await禁止）
-    const ta=document.createElement("textarea");
-    ta.value=url;
-
-    ta.style.position="fixed";
-    ta.style.top="0";
-    ta.style.left="0";
-    ta.style.opacity="0";
-
-    document.body.appendChild(ta);
-
-    ta.focus();
-    ta.select();
-
-    const ok=document.execCommand("copy");
-
-    document.body.removeChild(ta);
-
-    if(ok){
-      showToast("コピーしました");
-    }else{
-      throw "copy失敗";
-    }
-
-  }catch(e){
-    log("copy error:",e);
-    showToast("コピーできませんでした");
-  }
-}
-
-function makeQR(){
-  if(!url){
-    generate();
-  }
-  QRCode.toCanvas(qr,url);
-  showToast("QR生成");
-}
-
-function loadFromURL(){
-  try{
-    const d=new URL(loadUrl.value).searchParams.get("d");
-    data=JSON.parse(LZString.decompressFromEncodedURIComponent(d));
-    render();
-    showToast("読込成功");
-  }catch{
-    showToast("読込失敗");
-  }
-}
-
-  function findRoute(fromName, toName){
-  const queue = [{name: fromName, path: []}];
-  const visited = new Set();
-
-  while(queue.length){
-    const curr = queue.shift();
-
-    if(curr.name === toName){
-      return curr.path;
-    }
-
-    if(visited.has(curr.name)) continue;
-    visited.add(curr.name);
-
-    const edges = stationGraph[curr.name] || [];
-
-    edges.forEach(e=>{
-      queue.push({
-        name: e.to,
-        path: [...curr.path, {
-          from: curr.name,
-          to: e.to,
-          line: e.line
-        }]
-      });
-    });
-  }
-
-  return null;
-}
-
-  let stationGraph = {};
-
-function buildStationGraph(){
-  stationGraph = {};
-
-  stations.forEach(s=>{
-    stationGraph[s.name] = [];
-  });
-
-  // 同一路線の駅同士を接続
-  stations.forEach(s1=>{
-    stations.forEach(s2=>{
-      if(s1 === s2) return;
-
-      // 同じ路線を持ってるなら接続
-      const common = s1.lines?.find(l=>s2.lines?.includes(l));
-      if(common){
-        stationGraph[s1.name].push({
-          to: s2.name,
-          line: common
-        });
+    `
+
+          list.appendChild(el)
+        })
+
+        // ★既存Sortable破棄
+        if (sortable) {
+          sortable.destroy()
+        }
+
+        // ★ハンドル限定ドラッグ
+        sortable = new Sortable(list, {
+          animation: 150,
+          handle: '.drag',
+          onEnd: (e) => {
+            const item = cards.splice(e.oldIndex, 1)[0]
+            cards.splice(e.newIndex, 0, item)
+            save()
+          },
+        })
+
+        save()
       }
-    });
-  });
 
-  log("✅ graph built");
-}
+      // ===== 新規 =====
+      function newData() {
+        confirmModal('リセットしますか？', () => {
+          data = { d: [{ dt: '1日目', c: [] }] }
+          render()
+          showToast('新規作成しました')
+        })
+      }
 
-  function findRoute(fromName, toName){
-  const queue = [{name: fromName, path: []}];
-  const visited = new Set();
+      // ===== 追加 =====
+      function addDay() {
+        data.d.push({ dt: `${data.d.length + 1}日目`, c: [] })
+        di = data.d.length - 1
+        render()
+      }
 
-  while(queue.length){
-    const curr = queue.shift();
+      function addCard(type) {
+        const c = { t: type, s: '09:00', e: '10:00' }
+        if (type === 'm') c.m = 'train'
+        data.d[di].c.push(c)
+        render()
+      }
 
-    if(curr.name === toName){
-      return curr.path;
-    }
+      // ===== 編集 =====
+      function edit(i) {
+        ei = i
+        const c = data.d[di].c[i]
 
-    if(visited.has(curr.name)) continue;
-    visited.add(curr.name);
+        if (!c) return
 
-    const edges = stationGraph[curr.name] || [];
+        editor.style.display = 'block'
 
-    edges.forEach(e=>{
-      queue.push({
-        name: e.to,
-        path: [...curr.path, {
-          from: curr.name,
-          to: e.to,
-          line: e.line
-        }]
-      });
-    });
-  }
+        title.value = c.tt || ''
+        start.value = c.s || ''
+        end.value = c.e || ''
+        mode.value = c.m || 'a'
+        comment.value = c.cm || ''
 
-  return null;
-}
+        initMap(c)
+      }
 
-async function init(){
-  await loadStationsFromGeoJSON();
-  buildStationGraph(); 
-  render();
-}
+      function normalizeLineName(name) {
+        if (!name) return null
 
-init();
-</script>
+        return name
+          .replace('JR中央線', '東日本旅客鉄道中央線')
+          .replace('中央線', '東日本旅客鉄道中央線')
+          .replace('武蔵野線', '東日本旅客鉄道武蔵野線')
+          .replace('青梅線', '東日本旅客鉄道青梅線')
+          .replace('京葉線', '東日本旅客鉄道京葉線')
+      }
 
-</body>
+      // ===== 路線選択 =====
+      function chooseLine(prev, st) {
+        if (!st.lines) return null
+
+        let line = null
+
+        if (prev && prev.line) {
+          const m = st.lines.find((l) => l === prev.line)
+          if (m) line = m
+        }
+
+        if (!line) {
+          line = st.lines[0]
+        }
+
+        return normalizeLineName(line) // ★ここ重要
+      }
+
+      // ===== 地図 =====
+      function initMap(c) {
+        if (map) map.remove()
+
+        map = L.map('map').setView([c.la || 35.7708, c.lo || 139.9438], 13)
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+
+        if (c.la) {
+          marker = L.marker([c.la, c.lo]).addTo(map)
+        }
+
+        map.on('click', (e) => {
+          const st = nearest(e.latlng.lat, e.latlng.lng)
+
+          if (!st) {
+            stationInfo.innerText = '駅見つからず'
+            return
+          }
+
+          if (marker) marker.remove()
+          marker = L.marker([st.lat, st.lng]).addTo(map)
+
+          const card = data.d[di].c[ei]
+          const prev = data.d[di].c[ei - 1]
+
+          card.la = st.lat
+          card.lo = st.lng
+          card.station = st.name
+
+          // ★ここが重要
+          card.line = chooseLine(prev, st)
+
+          log('SET station:', st.name)
+          log('SET line:', card.line)
+
+          stationInfo.innerText = `${st.name} / ${card.line}`
+        })
+      }
+
+      // ===== 最寄駅 =====
+      function nearest(lat, lng) {
+        let best = null,
+          bestDist = Infinity
+
+        for (const s of stations) {
+          const d = (s.lat - lat) ** 2 + (s.lng - lng) ** 2
+          if (d < bestDist) {
+            bestDist = d
+            best = s
+          }
+        }
+
+        return best
+      }
+
+      // ===== 保存 =====
+      function saveEdit() {
+        const c = data.d[di].c[ei]
+
+        c.tt = title.value
+        c.s = start.value
+        c.e = end.value
+        c.m = mode.value
+        c.cm = comment.value
+
+        // ★ line補完（超重要）
+        if (c.m === 'train' && !c.line) {
+          const st = stations.find((s) => s.name === c.station)
+          if (st && st.lines && st.lines.length > 0) {
+            c.line = st.lines[0]
+            c.line = normalizeLineName(c.line)
+            log('補完 line:', c.line)
+          } else {
+            log('❌ line補完失敗')
+          }
+        }
+
+        editor.style.display = 'none'
+        render()
+      }
+
+      // ===== 削除 =====
+      function deleteDay() {
+        if (data.d.length <= 1) {
+          showToast('最後の1日は削除できません')
+          return
+        }
+
+        confirmModal('この日を削除しますか？', () => {
+          data.d.splice(di, 1)
+          di = Math.max(0, di - 1)
+          render()
+          showToast('日を削除しました')
+        })
+      }
+
+      function deleteCard(i) {
+        confirmModal('削除しますか？', () => {
+          data.d[di].c.splice(i, 1)
+          render()
+          showToast('カード削除しました')
+        })
+      }
+
+      // ===== URL =====
+      let url = ''
+      function generate() {
+        const d = LZString.compressToEncodedURIComponent(JSON.stringify(data))
+        url = 'https://ntaokshaiyoa-afk.github.io/SimilarBird/?d=' + d
+
+        out.innerText = url
+        log('URL生成:', url)
+
+        return url
+      }
+
+      function copy() {
+        // 毎回必ず最新URL生成（超重要）
+        const url = generate()
+
+        try {
+          // ★同期的に実行（await禁止）
+          const ta = document.createElement('textarea')
+          ta.value = url
+
+          ta.style.position = 'fixed'
+          ta.style.top = '0'
+          ta.style.left = '0'
+          ta.style.opacity = '0'
+
+          document.body.appendChild(ta)
+
+          ta.focus()
+          ta.select()
+
+          const ok = document.execCommand('copy')
+
+          document.body.removeChild(ta)
+
+          if (ok) {
+            showToast('コピーしました')
+          } else {
+            throw 'copy失敗'
+          }
+        } catch (e) {
+          log('copy error:', e)
+          showToast('コピーできませんでした')
+        }
+      }
+
+      function makeQR() {
+        if (!url) {
+          generate()
+        }
+        QRCode.toCanvas(qr, url)
+        showToast('QR生成')
+      }
+
+      function loadFromURL() {
+        try {
+          const d = new URL(loadUrl.value).searchParams.get('d')
+          data = JSON.parse(LZString.decompressFromEncodedURIComponent(d))
+          render()
+          showToast('読込成功')
+        } catch {
+          showToast('読込失敗')
+        }
+      }
+
+      function findRoute(fromName, toName) {
+        const queue = [{ name: fromName, path: [] }]
+        const visited = new Set()
+
+        while (queue.length) {
+          const curr = queue.shift()
+
+          if (curr.name === toName) {
+            return curr.path
+          }
+
+          if (visited.has(curr.name)) continue
+          visited.add(curr.name)
+
+          const edges = stationGraph[curr.name] || []
+
+          edges.forEach((e) => {
+            queue.push({
+              name: e.to,
+              path: [
+                ...curr.path,
+                {
+                  from: curr.name,
+                  to: e.to,
+                  line: e.line,
+                },
+              ],
+            })
+          })
+        }
+
+        return null
+      }
+
+      let stationGraph = {}
+
+      function buildStationGraph() {
+        stationGraph = {}
+
+        stations.forEach((s) => {
+          stationGraph[s.name] = []
+        })
+
+        // 同一路線の駅同士を接続
+        stations.forEach((s1) => {
+          stations.forEach((s2) => {
+            if (s1 === s2) return
+
+            // 同じ路線を持ってるなら接続
+            const common = s1.lines?.find((l) => s2.lines?.includes(l))
+            if (common) {
+              stationGraph[s1.name].push({
+                to: s2.name,
+                line: common,
+              })
+            }
+          })
+        })
+
+        log('✅ graph built')
+      }
+
+      function findRoute(fromName, toName) {
+        const queue = [{ name: fromName, path: [] }]
+        const visited = new Set()
+
+        while (queue.length) {
+          const curr = queue.shift()
+
+          if (curr.name === toName) {
+            return curr.path
+          }
+
+          if (visited.has(curr.name)) continue
+          visited.add(curr.name)
+
+          const edges = stationGraph[curr.name] || []
+
+          edges.forEach((e) => {
+            queue.push({
+              name: e.to,
+              path: [
+                ...curr.path,
+                {
+                  from: curr.name,
+                  to: e.to,
+                  line: e.line,
+                },
+              ],
+            })
+          })
+        }
+
+        return null
+      }
+
+      async function init() {
+        await loadStationsFromGeoJSON()
+        buildStationGraph()
+        render()
+      }
+
+      init()
+    </script>
+  </body>
 </html>

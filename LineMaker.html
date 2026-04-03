@@ -1,36 +1,38 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-<meta charset="UTF-8">
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<style>#map{height:300px}</style>
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+      #map {
+        height: 300px;
+      }
+    </style>
+  </head>
+  <body>
+    <button onclick="exportJSON()">JSON出力</button>
+    <pre id="out"></pre>
+    <div id="map"></div>
 
-<button onclick="exportJSON()">JSON出力</button>
-<pre id="out"></pre>
-<div id="map"></div>
+    <script>
+      let coords = []
 
-<script>
-let coords=[];
+      let map = L.map('map').setView([34.5, 136.8], 10)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
 
-let map=L.map("map").setView([34.5,136.8],10);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+      map.on('click', (e) => {
+        coords.push([e.latlng.lng, e.latlng.lat])
+        L.polyline(coords).addTo(map)
+      })
 
-map.on("click",e=>{
-  coords.push([e.latlng.lng,e.latlng.lat]);
-  L.polyline(coords).addTo(map);
-});
-
-function exportJSON(){
-  const geo={
-    type:"Feature",
-    geometry:{type:"LineString",coordinates:coords}
-  };
-  out.innerText=JSON.stringify(geo,null,2);
-}
-</script>
-
-</body>
+      function exportJSON() {
+        const geo = {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: coords },
+        }
+        out.innerText = JSON.stringify(geo, null, 2)
+      }
+    </script>
+  </body>
 </html>

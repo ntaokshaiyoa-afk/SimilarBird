@@ -1,1156 +1,1204 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
 
-<script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-<style>
-body{margin:0;background:#f5f5f5;font-family:sans-serif;}
-
-.tabs{
-  position:sticky;top:0;background:white;
-  padding:10px;z-index:1000;
-}
-
-.card{
-  background:white;margin:10px;border-radius:12px;
-  overflow:hidden;
-}
-
-.header{
-  padding:12px;
-  display:flex;justify-content:space-between;
-  cursor:pointer;
-}
-
-.detail{display:none;padding:10px;}
-.card.open .detail{display:block;}
-
-.map{height:160px;margin-top:10px;z-index:0;}
-
-.md{background:#fafafa;padding:8px;border-radius:8px;}
-
-.transfer{color:red;font-weight:bold;}
-
-.next{
-  position:fixed;bottom:0;width:100%;
-  background:#007aff;color:white;
-  padding:10px;z-index:1000;
-}
-
-.spacer{height:60px;}
-
-.loading {
-  font-size:12px;
-  color:#999;
-}
-
-#debug{
-  position:fixed;
-  bottom:0;
-  width:100%;
-  max-height:120px;
-  overflow:auto;
-  background:#000;
-  color:#0f0;
-  font-size:10px;
-  z-index:2000;
-}
-</style>
-</head>
-
-<body>
-
-<div id="tabs" class="tabs"></div>
-<div id="overviewMap" style="height:200px;margin:10px;border-radius:12px;"></div>
-<div id="list"></div>
-<div class="spacer"></div>
-<div id="next" class="next"></div>
-
-<!-- トグルボタン -->
-<div id="devToggle" style="
-  position:fixed;
-  top:10px;
-  left:10px;
-  z-index:4000;
-  background:#007aff;
-  color:white;
-  padding:8px 10px;
-  border-radius:8px;
-  font-size:14px;
-  cursor:pointer;
-">
-  ⚙️
-</div>
-
-<!-- 開発パネル -->
-<div id="devPanel" style="
-  position:fixed;
-  top:50px;
-  right:10px;
-  z-index:3000;
-  background:white;
-  padding:10px;
-  border-radius:12px;
-  box-shadow:0 2px 10px rgba(0,0,0,0.3);
-  display:none;
-  width:200px;
-">
-  <div style="margin-bottom:8px;">
-    <input id="apiKeyInput" placeholder="ORS API Key" style="width:100%;">
-    <button onclick="saveApiKey()" style="width:100%;margin-top:5px;">保存</button>
-  </div>
-
-  <div id="debug" style="
-    max-height:120px;
-    overflow:auto;
-    background:#000;
-    color:#0f0;
-    font-size:10px;
-    padding:5px;
-  "></div>
-</div>
-  
-<script>
-let maps = {};
-
-// 仮想化
-let scrollTop = 0;
-const ITEM_HEIGHT = 180; // カード高さ（目安）
-const BUFFER = 5; // 前後余白
-
-// ===== DEV PANEL =====
-let devOpen = localStorage.getItem("dev_open") === "1";
-
-function updateDevPanel(){
-  devPanel.style.display = devOpen ? "block" : "none";
-  localStorage.setItem("dev_open", devOpen ? "1" : "0");
-}
-  
-document.getElementById("devToggle").onclick = ()=>{
-  devOpen = !devOpen;
-  document.getElementById("devPanel").style.display =
-    devOpen ? "block" : "none";
-};
-  
-// ===== LOG =====
-function log(...a){
-  try{
-    console.log(...a);
-    debug.innerText += a.join(" ") + "\n";
-  }catch(e){}
-}
-
-window.onerror = function(msg, url, line, col, err){
-  log("💥 JS ERROR:", msg, "at", line);
-};
-
-// ===== API KEY =====
-function getApiKey(){
-  return localStorage.getItem("ors_key");
-}
-
-function setApiKey(key){
-  localStorage.setItem("ors_key", key);
-}
-
-function saveApiKey(){
-  const key = apiKeyInput.value.trim();
-
-  if(!key){
-    alert("APIキーを入力してください");
-    return;
-  }
-
-  setApiKey(key);
-  alert("保存しました");
-}
-
-function initApiKey(){
-  const urlKey = new URLSearchParams(location.search).get("key");
-  const localKey = getApiKey();
-
-  // URL優先
-  if(urlKey){
-    setApiKey(urlKey);
-    apiKeyInput.value = urlKey;
-    log("🔑 API key loaded from URL");
-    return;
-  }
-
-  // localStorage
-  if(localKey){
-    apiKeyInput.value = localKey;
-    log("🔑 API key loaded from localStorage");
-    return;
-  }
-
-  // 未設定
-  log("❌ API key not set");
-  alert("ORS APIキーを入力してください");
-}
-
-// ===== ORS CACHE =====
-const routeCache = {};
-
-function getProfile(mode){
-  switch(mode){
-    case "walk": return "foot-walking";
-    case "car": return "driving-car";
-    case "bike": return "cycling-regular";
-    default: return "foot-walking";
-  }
-}
-
-async function getRouteORS(prev, curr, mode){
-  const key = getApiKey();
-
-  if(!key){
-    log("❌ APIキー未設定");
-    return null;
-  }
-
-  const cacheKey = `${prev.la},${prev.lo}-${curr.la},${curr.lo}-${mode}`;
-
-  if(routeCache[cacheKey]){
-    log("⚡ cache hit");
-    return routeCache[cacheKey];
-  }
-
-  const profile = getProfile(mode);
-
-  try{
-    const res = await fetch(
-      `https://api.openrouteservice.org/v2/directions/${profile}/geojson`,
-      {
-        method:"POST",
-        headers:{
-          "Authorization": key,
-          "Content-Type":"application/json"
-        },
-        body: JSON.stringify({
-          coordinates: [
-            [prev.lo, prev.la],
-            [curr.lo, curr.la]
-          ]
-        })
+    <style>
+      body {
+        margin: 0;
+        background: #f5f5f5;
+        font-family: sans-serif;
       }
-    );
 
-    if(!res.ok){
-      log("❌ ORS error:", res.status);
-      return null;
-    }
+      .tabs {
+        position: sticky;
+        top: 0;
+        background: white;
+        padding: 10px;
+        z-index: 1000;
+      }
 
-    const geo = await res.json();
+      .card {
+        background: white;
+        margin: 10px;
+        border-radius: 12px;
+        overflow: hidden;
+      }
 
-    const coordsRaw = geo.features[0].geometry.coordinates;
+      .header {
+        padding: 12px;
+        display: flex;
+        justify-content: space-between;
+        cursor: pointer;
+      }
 
-    // ★ 距離・時間
-    const summary = geo.features[0].properties.summary;
+      .detail {
+        display: none;
+        padding: 10px;
+      }
+      .card.open .detail {
+        display: block;
+      }
 
-    const distance = summary.distance; // m
-    const duration = summary.duration; // sec
+      .map {
+        height: 160px;
+        margin-top: 10px;
+        z-index: 0;
+      }
 
-    // ★ 軽量化
-    const coords = simplifyCoords(coordsRaw, 5) // ←ここ重要
-      .map(p=>[p[1], p[0]]);
+      .md {
+        background: #fafafa;
+        padding: 8px;
+        border-radius: 8px;
+      }
 
-    const result = {
-      coords,
-      distance,
-      duration
-    };
+      .transfer {
+        color: red;
+        font-weight: bold;
+      }
 
-    routeCache[cacheKey] = result;
+      .next {
+        position: fixed;
+        bottom: 0;
+        width: 100%;
+        background: #007aff;
+        color: white;
+        padding: 10px;
+        z-index: 1000;
+      }
 
-    return result;
+      .spacer {
+        height: 60px;
+      }
 
-  }catch(e){
-    log("❌ ORS fetch error:", e);
-    return null;
-  }
-}
+      .loading {
+        font-size: 12px;
+        color: #999;
+      }
 
-function simplifyCoords(coords, step=5){
-  if(coords.length <= step) return coords;
+      #debug {
+        position: fixed;
+        bottom: 0;
+        width: 100%;
+        max-height: 120px;
+        overflow: auto;
+        background: #000;
+        color: #0f0;
+        font-size: 10px;
+        z-index: 2000;
+      }
+    </style>
+  </head>
 
-  const result = [];
+  <body>
+    <div id="tabs" class="tabs"></div>
+    <div id="overviewMap" style="height: 200px; margin: 10px; border-radius: 12px"></div>
+    <div id="list"></div>
+    <div class="spacer"></div>
+    <div id="next" class="next"></div>
 
-  for(let i=0; i<coords.length; i+=step){
-    result.push(coords[i]);
-  }
+    <!-- トグルボタン -->
+    <div
+      id="devToggle"
+      style="
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        z-index: 4000;
+        background: #007aff;
+        color: white;
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-size: 14px;
+        cursor: pointer;
+      "
+    >
+      ⚙️
+    </div>
 
-  // 最後は必ず追加
-  result.push(coords[coords.length-1]);
+    <!-- 開発パネル -->
+    <div
+      id="devPanel"
+      style="
+        position: fixed;
+        top: 50px;
+        right: 10px;
+        z-index: 3000;
+        background: white;
+        padding: 10px;
+        border-radius: 12px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        display: none;
+        width: 200px;
+      "
+    >
+      <div style="margin-bottom: 8px">
+        <input id="apiKeyInput" placeholder="ORS API Key" style="width: 100%" />
+        <button onclick="saveApiKey()" style="width: 100%; margin-top: 5px">保存</button>
+      </div>
 
-  return result;
-}
+      <div
+        id="debug"
+        style="
+          max-height: 120px;
+          overflow: auto;
+          background: #000;
+          color: #0f0;
+          font-size: 10px;
+          padding: 5px;
+        "
+      ></div>
+    </div>
 
-function formatDistance(m){
-  if(m < 1000) return `${Math.round(m)}m`;
-  return `${(m/1000).toFixed(1)}km`;
-}
+    <script>
+      let maps = {}
 
-function formatDuration(sec){
-  const min = Math.round(sec/60);
+      // 仮想化
+      let scrollTop = 0
+      const ITEM_HEIGHT = 180 // カード高さ（目安）
+      const BUFFER = 5 // 前後余白
 
-  if(min < 60) return `${min}分`;
+      // ===== DEV PANEL =====
+      let devOpen = localStorage.getItem('dev_open') === '1'
 
-  const h = Math.floor(min/60);
-  const m = min % 60;
+      function updateDevPanel() {
+        devPanel.style.display = devOpen ? 'block' : 'none'
+        localStorage.setItem('dev_open', devOpen ? '1' : '0')
+      }
 
-  return `${h}時間${m}分`;
-}
+      document.getElementById('devToggle').onclick = () => {
+        devOpen = !devOpen
+        document.getElementById('devPanel').style.display = devOpen ? 'block' : 'none'
+      }
 
-// ===== PREFETCH =====
-let prefetching = false;
+      // ===== LOG =====
+      function log(...a) {
+        try {
+          console.log(...a)
+          debug.innerText += a.join(' ') + '\n'
+        } catch (e) {}
+      }
 
-async function prefetchRoutes(){
-  if(prefetching) return;
+      window.onerror = function (msg, url, line, col, err) {
+        log('💥 JS ERROR:', msg, 'at', line)
+      }
 
-  const cards = data.d[di].c;
-  if(!cards || cards.length < 2) return;
+      // ===== API KEY =====
+      function getApiKey() {
+        return localStorage.getItem('ors_key')
+      }
 
-  prefetching = true;
-  log("🚀 prefetch start");
+      function setApiKey(key) {
+        localStorage.setItem('ors_key', key)
+      }
 
-  const tasks = [];
+      function saveApiKey() {
+        const key = apiKeyInput.value.trim()
 
-  for(let i=1;i<cards.length;i++){
-    const prev = cards[i-1];
-    const curr = cards[i];
+        if (!key) {
+          alert('APIキーを入力してください')
+          return
+        }
 
-    if(!prev.la || !curr.la) continue;
-    if(curr.m === "train") continue;
+        setApiKey(key)
+        alert('保存しました')
+      }
 
-    // ★ 未キャッシュのみ
-    const key = `${prev.la},${prev.lo}-${curr.la},${curr.lo}-${curr.m}`;
-    if(routeCache[key]) continue;
+      function initApiKey() {
+        const urlKey = new URLSearchParams(location.search).get('key')
+        const localKey = getApiKey()
 
-    tasks.push(getRouteORS(prev, curr, curr.m));
-  }
+        // URL優先
+        if (urlKey) {
+          setApiKey(urlKey)
+          apiKeyInput.value = urlKey
+          log('🔑 API key loaded from URL')
+          return
+        }
 
-  // ★ 並列実行（最大3並列くらいに抑える）
-  const limit = 3;
+        // localStorage
+        if (localKey) {
+          apiKeyInput.value = localKey
+          log('🔑 API key loaded from localStorage')
+          return
+        }
 
-  for(let i=0;i<tasks.length;i+=limit){
-    await Promise.all(tasks.slice(i,i+limit));
-  }
+        // 未設定
+        log('❌ API key not set')
+        alert('ORS APIキーを入力してください')
+      }
 
-  log("✅ prefetch done");
-  prefetching = false;
-}
+      // ===== ORS CACHE =====
+      const routeCache = {}
 
-// ===== ルート全体 =====
-async function buildFullRoute(){
-  const cards = data.d?.[di]?.c || [];
+      function getProfile(mode) {
+        switch (mode) {
+          case 'walk':
+            return 'foot-walking'
+          case 'car':
+            return 'driving-car'
+          case 'bike':
+            return 'cycling-regular'
+          default:
+            return 'foot-walking'
+        }
+      }
 
-  const routes = [];
+      async function getRouteORS(prev, curr, mode) {
+        const key = getApiKey()
 
-  for(let i=1;i<cards.length;i++){
-    const prev = cards[i-1];
-    const curr = cards[i];
+        if (!key) {
+          log('❌ APIキー未設定')
+          return null
+        }
 
-    if(!prev.la || !curr.la) continue;
+        const cacheKey = `${prev.la},${prev.lo}-${curr.la},${curr.lo}-${mode}`
 
-    // 🚃 電車
-    if(curr.m === "train"){
-      const prevLine = prev.line;
-      const currLine = curr.line;
-    
-      // 🚨 乗り換え検知
-      if(prevLine && currLine && prevLine !== currLine){
-        log("transfer:", prevLine, "->", currLine);
-      
-        // 👇 ここを変更
-        const coords = await buildTrainRoute(prev, curr);
-      
-        if(coords && coords.length){
+        if (routeCache[cacheKey]) {
+          log('⚡ cache hit')
+          return routeCache[cacheKey]
+        }
+
+        const profile = getProfile(mode)
+
+        try {
+          const res = await fetch(
+            `https://api.openrouteservice.org/v2/directions/${profile}/geojson`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: key,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                coordinates: [
+                  [prev.lo, prev.la],
+                  [curr.lo, curr.la],
+                ],
+              }),
+            },
+          )
+
+          if (!res.ok) {
+            log('❌ ORS error:', res.status)
+            return null
+          }
+
+          const geo = await res.json()
+
+          const coordsRaw = geo.features[0].geometry.coordinates
+
+          // ★ 距離・時間
+          const summary = geo.features[0].properties.summary
+
+          const distance = summary.distance // m
+          const duration = summary.duration // sec
+
+          // ★ 軽量化
+          const coords = simplifyCoords(coordsRaw, 5) // ←ここ重要
+            .map((p) => [p[1], p[0]])
+
+          const result = {
+            coords,
+            distance,
+            duration,
+          }
+
+          routeCache[cacheKey] = result
+
+          return result
+        } catch (e) {
+          log('❌ ORS fetch error:', e)
+          return null
+        }
+      }
+
+      function simplifyCoords(coords, step = 5) {
+        if (coords.length <= step) return coords
+
+        const result = []
+
+        for (let i = 0; i < coords.length; i += step) {
+          result.push(coords[i])
+        }
+
+        // 最後は必ず追加
+        result.push(coords[coords.length - 1])
+
+        return result
+      }
+
+      function formatDistance(m) {
+        if (m < 1000) return `${Math.round(m)}m`
+        return `${(m / 1000).toFixed(1)}km`
+      }
+
+      function formatDuration(sec) {
+        const min = Math.round(sec / 60)
+
+        if (min < 60) return `${min}分`
+
+        const h = Math.floor(min / 60)
+        const m = min % 60
+
+        return `${h}時間${m}分`
+      }
+
+      // ===== PREFETCH =====
+      let prefetching = false
+
+      async function prefetchRoutes() {
+        if (prefetching) return
+
+        const cards = data.d[di].c
+        if (!cards || cards.length < 2) return
+
+        prefetching = true
+        log('🚀 prefetch start')
+
+        const tasks = []
+
+        for (let i = 1; i < cards.length; i++) {
+          const prev = cards[i - 1]
+          const curr = cards[i]
+
+          if (!prev.la || !curr.la) continue
+          if (curr.m === 'train') continue
+
+          // ★ 未キャッシュのみ
+          const key = `${prev.la},${prev.lo}-${curr.la},${curr.lo}-${curr.m}`
+          if (routeCache[key]) continue
+
+          tasks.push(getRouteORS(prev, curr, curr.m))
+        }
+
+        // ★ 並列実行（最大3並列くらいに抑える）
+        const limit = 3
+
+        for (let i = 0; i < tasks.length; i += limit) {
+          await Promise.all(tasks.slice(i, i + limit))
+        }
+
+        log('✅ prefetch done')
+        prefetching = false
+      }
+
+      // ===== ルート全体 =====
+      async function buildFullRoute() {
+        const cards = data.d?.[di]?.c || []
+
+        const routes = []
+
+        for (let i = 1; i < cards.length; i++) {
+          const prev = cards[i - 1]
+          const curr = cards[i]
+
+          if (!prev.la || !curr.la) continue
+
+          // 🚃 電車
+          if (curr.m === 'train') {
+            const prevLine = prev.line
+            const currLine = curr.line
+
+            // 🚨 乗り換え検知
+            if (prevLine && currLine && prevLine !== currLine) {
+              log('transfer:', prevLine, '->', currLine)
+
+              // 👇 ここを変更
+              const coords = await buildTrainRoute(prev, curr)
+
+              if (coords && coords.length) {
+                routes.push({
+                  type: 'train',
+                  coords: coords,
+                })
+              } else {
+                // fallback（最悪だけ徒歩）
+                const result = await getRouteORS(prev, curr, 'walk')
+
+                if (result) {
+                  routes.push({
+                    type: 'transfer',
+                    coords: result.coords,
+                  })
+                } else {
+                  routes.push({
+                    type: 'fallback',
+                    coords: [
+                      [prev.la, prev.lo],
+                      [curr.la, curr.lo],
+                    ],
+                  })
+                }
+              }
+
+              continue
+            }
+
+            // 🚃 通常の同一路線
+            let line = currLine || prevLine
+            if (!line) continue
+
+            const geo = await loadLine(line)
+            if (!geo) continue
+
+            const seg = extractSegment(geo, [prev.lo, prev.la], [curr.lo, curr.la])
+
+            if (!seg) continue
+
+            routes.push({
+              type: 'train',
+              coords: seg.map((p) => [p[1], p[0]]),
+            })
+
+            continue
+          }
+
+          // 🚗 ORS
+          const result = await getRouteORS(prev, curr, curr.m)
+
+          if (result) {
+            routes.push({
+              type: curr.m,
+              coords: result.coords,
+            })
+            continue
+          }
+
+          // fallback
           routes.push({
-            type: "train",
-            coords: coords
-          });
-        }else{
-          // fallback（最悪だけ徒歩）
-          const result = await getRouteORS(prev, curr, "walk");
-      
-          if(result){
-            routes.push({
-              type:"transfer",
-              coords: result.coords
-            });
-          }else{
-            routes.push({
-              type:"fallback",
-              coords: [
-                [prev.la, prev.lo],
-                [curr.la, curr.lo]
-              ]
-            });
+            type: 'fallback',
+            coords: [
+              [prev.la, prev.lo],
+              [curr.la, curr.lo],
+            ],
+          })
+        }
+
+        return routes
+      }
+
+      async function buildTrainRoute(prev, curr) {
+        const path = findRoute(prev.station, curr.station)
+
+        if (!path) {
+          log('❌ 経路見つからず')
+          return null
+        }
+
+        let coords = []
+
+        for (const seg of path) {
+          const geo = await loadLine(seg.line)
+          if (!geo) continue
+
+          const from = stations.find((s) => s.name === seg.from)
+          const to = stations.find((s) => s.name === seg.to)
+
+          if (!from || !to) continue
+
+          const part = extractSegment(geo, [from.lng, from.lat], [to.lng, to.lat])
+
+          if (part) {
+            coords = coords.concat(part.map((p) => [p[1], p[0]]))
           }
         }
-      
-        continue;
+
+        return coords
       }
-    
-      // 🚃 通常の同一路線
-      let line = currLine || prevLine;
-      if(!line) continue;
-    
-      const geo = await loadLine(line);
-      if(!geo) continue;
-    
-      const seg = extractSegment(
-        geo,
-        [prev.lo, prev.la],
-        [curr.lo, curr.la]
-      );
-    
-      if(!seg) continue;
-    
-      routes.push({
-        type:"train",
-        coords: seg.map(p=>[p[1],p[0]])
-      });
-    
-      continue;
-    }
 
-    // 🚗 ORS
-    const result = await getRouteORS(prev, curr, curr.m);
+      async function buildTrainRoute(prev, curr) {
+        const path = findRoute(prev.station, curr.station)
 
-    if(result){
-      routes.push({
-        type: curr.m,
-        coords: result.coords
-      });
-      continue;
-    }
-
-    // fallback
-    routes.push({
-      type:"fallback",
-      coords: [
-        [prev.la,prev.lo],
-        [curr.la,curr.lo]
-      ]
-    });
-  }
-
-  return routes;
-}
-
-  async function buildTrainRoute(prev, curr){
-  const path = findRoute(prev.station, curr.station);
-
-  if(!path){
-    log("❌ 経路見つからず");
-    return null;
-  }
-
-  let coords = [];
-
-  for(const seg of path){
-    const geo = await loadLine(seg.line);
-    if(!geo) continue;
-
-    const from = stations.find(s=>s.name === seg.from);
-    const to = stations.find(s=>s.name === seg.to);
-
-    if(!from || !to) continue;
-
-    const part = extractSegment(
-      geo,
-      [from.lng, from.lat],
-      [to.lng, to.lat]
-    );
-
-    if(part){
-      coords = coords.concat(part.map(p=>[p[1],p[0]]));
-    }
-  }
-
-  return coords;
-}
-
-  async function buildTrainRoute(prev, curr){
-  const path = findRoute(prev.station, curr.station);
-
-  if(!path){
-    log("❌ 経路見つからず");
-    return null;
-  }
-
-  let coords = [];
-
-  for(const seg of path){
-    const geo = await loadLine(seg.line);
-    if(!geo) continue;
-
-    const from = stations.find(s=>s.name === seg.from);
-    const to = stations.find(s=>s.name === seg.to);
-
-    if(!from || !to) continue;
-
-    const part = extractSegment(
-      geo,
-      [from.lng, from.lat],
-      [to.lng, to.lat]
-    );
-
-    if(part){
-      coords = coords.concat(part.map(p=>[p[1],p[0]]));
-    }
-  }
-
-  return coords;
-}
-
-  function findRoute(fromName, toName){
-  const queue = [{name: fromName, path: []}];
-  const visited = new Set();
-
-  while(queue.length){
-    const curr = queue.shift();
-
-    if(curr.name === toName){
-      return curr.path;
-    }
-
-    if(visited.has(curr.name)) continue;
-    visited.add(curr.name);
-
-    const edges = stationGraph[curr.name] || [];
-
-    edges.forEach(e=>{
-      queue.push({
-        name: e.to,
-        path: [...curr.path, {
-          from: curr.name,
-          to: e.to,
-          line: e.line
-        }]
-      });
-    });
-  }
-
-  return null;
-}
-
-let overviewMap;
-
-async function renderOverviewMap(){
-  const el = document.getElementById("overviewMap");
-  if(!el) return;
-
-  if(!overviewMap){
-    overviewMap = L.map(el, {
-      dragging:true,
-      tap:false
-    });
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png')
-      .addTo(overviewMap);
-  }
-
-  // 既存レイヤ削除
-  overviewMap.eachLayer(layer=>{
-    if(!(layer instanceof L.TileLayer)){
-      overviewMap.removeLayer(layer);
-    }
-  });
-
-  const routes = await buildFullRoute();
-
-  let bounds = [];
-
-  routes.forEach(r=>{
-    const poly = L.polyline(r.coords,{
-      color: getRouteColor(r.type),
-      weight:4,
-      dashArray: r.type==="fallback" ? "6,6" : null
-    }).addTo(overviewMap);
-
-    bounds = bounds.concat(r.coords);
-  });
-
-  // マーカーも追加
-  const cards = data.d?.[di]?.c || [];
-  cards.forEach(c=>{
-    if(c.la){
-      L.marker([c.la,c.lo]).addTo(overviewMap);
-      bounds.push([c.la,c.lo]);
-    }
-  });
-
-  if(bounds.length){
-    overviewMap.fitBounds(bounds, {padding:[20,20]});
-  }
-}
-
-  // ===== stationGraph生成 =====
-function buildStationGraphFromGeoJSON(geo){
-  const stations = [];
-  const stationIndex = {};
-
-  // 駅抽出
-  geo.features.forEach(f=>{
-    if(f.geometry.type === "Point"){
-      const name = f.properties.name;
-      const [lng, lat] = f.geometry.coordinates;
-
-      stations.push({name, lat, lng});
-      stationIndex[name] = {lat, lng};
-    }
-  });
-
-  // 最近傍駅検索
-  function findNearestStation(coord){
-    let best = null;
-    let bestDist = Infinity;
-
-    stations.forEach(s=>{
-      const d =
-        (s.lng - coord[0])**2 +
-        (s.lat - coord[1])**2;
-
-      if(d < bestDist){
-        bestDist = d;
-        best = s.name;
-      }
-    });
-
-    return best;
-  }
-
-  const graph = {};
-
-  function addEdge(a, b, line){
-    if(!a || !b || a === b) return;
-
-    graph[a] = graph[a] || [];
-    graph[b] = graph[b] || [];
-
-    if(!graph[a].some(e=>e.to === b && e.line === line)){
-      graph[a].push({to:b, line});
-      graph[b].push({to:a, line});
-    }
-  }
-
-  geo.features.forEach(f=>{
-    let lineName = f.properties?.name;
-    
-    if(!lineName || !lineName.includes("線")){
-      const parts = f.properties?.uri?.split("/") || [];
-      lineName = parts[parts.length - 2];
-    }
-
-    let lines = [];
-
-    if(f.geometry.type === "LineString"){
-      lines = [f.geometry.coordinates];
-    }else if(f.geometry.type === "MultiLineString"){
-      lines = f.geometry.coordinates;
-    }else{
-      return;
-    }
-
-    lines.forEach(coords=>{
-      let prevStation = null;
-
-      coords.forEach(p=>{
-        const station = findNearestStation(p);
-
-        if(prevStation && station && prevStation !== station){
-          addEdge(prevStation, station, lineName);
+        if (!path) {
+          log('❌ 経路見つからず')
+          return null
         }
 
-        prevStation = station;
-      });
-    });
-  });
+        let coords = []
 
-  return {
-    stationGraph: graph,
-    stations
-  };
-}
+        for (const seg of path) {
+          const geo = await loadLine(seg.line)
+          if (!geo) continue
 
-// ===== LOAD =====
-function loadData(){
-  try{
-    const raw=new URLSearchParams(location.search).get("d");
-    return JSON.parse(LZString.decompressFromEncodedURIComponent(raw));
-  }catch{
-    return {d:[{dt:"サンプル",c:[]}]};
-  }
-}
+          const from = stations.find((s) => s.name === seg.from)
+          const to = stations.find((s) => s.name === seg.to)
 
-const data=loadData() || {d:[{dt:"サンプル",c:[]}]};
-let di=0, openIndex=null;
+          if (!from || !to) continue
 
-// ===== 路線カラー =====
-const lineColor={
-  "東日本旅客鉄道中央線":"orange",
-  "東日本旅客鉄道武蔵野線":"red",
-  "東日本旅客鉄道青梅線":"green",
-  "東日本旅客鉄道京葉線":"blue"
-};
+          const part = extractSegment(geo, [from.lng, from.lat], [to.lng, to.lat])
 
-// ===== 路線キャッシュ =====
-const lineCache={};
+          if (part) {
+            coords = coords.concat(part.map((p) => [p[1], p[0]]))
+          }
+        }
 
-function normalizeLineName(name){
-  if(!name) return null;
+        return coords
+      }
 
-  return name
-    .replaceAll("JR東日本", "東日本旅客鉄道")
-    .replaceAll("JR", "東日本旅客鉄道")
-    .replaceAll("線", "線"); // 将来拡張用
-}
-  
-async function loadLine(name){
-  if(!name){
-    log("❌ line missing");
-    return null;
-  }
+      function findRoute(fromName, toName) {
+        const queue = [{ name: fromName, path: [] }]
+        const visited = new Set()
 
-  name = normalizeLineName(name);
+        while (queue.length) {
+          const curr = queue.shift()
 
-  if(lineCache[name]) return lineCache[name];
+          if (curr.name === toName) {
+            return curr.path
+          }
 
-  try{
-    log("📥 load:",name);
-    const res=await fetch(`./lines/${name}.geojson`);
+          if (visited.has(curr.name)) continue
+          visited.add(curr.name)
 
-    if(!res.ok){
-      log("❌ geojson not found:",name);
-      return null;
-    }
+          const edges = stationGraph[curr.name] || []
 
-    const geo=await res.json();
-    lineCache[name]=geo;
-    return geo;
+          edges.forEach((e) => {
+            queue.push({
+              name: e.to,
+              path: [
+                ...curr.path,
+                {
+                  from: curr.name,
+                  to: e.to,
+                  line: e.line,
+                },
+              ],
+            })
+          })
+        }
 
-  }catch(e){
-    log("❌ load error:",name,e);
-    return null;
-  }
-}
+        return null
+      }
 
-// ===== 距離 =====
-function dist(a,b){
-  return (a[0]-b[0])**2+(a[1]-b[1])**2;
-}
+      let overviewMap
 
-// ===== セグメント抽出（強化版） =====
-function extractSegment(geo, from, to){
-  let best=null, bestScore=Infinity;
+      async function renderOverviewMap() {
+        const el = document.getElementById('overviewMap')
+        if (!el) return
 
-  geo.features.forEach(f=>{
-    let lines=[];
+        if (!overviewMap) {
+          overviewMap = L.map(el, {
+            dragging: true,
+            tap: false,
+          })
 
-    if(f.geometry.type==="LineString"){
-      lines=[f.geometry.coordinates];
-    }else if(f.geometry.type==="MultiLineString"){
-      lines=f.geometry.coordinates;
-    }
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(overviewMap)
+        }
 
-    lines.forEach(line=>{
-      let i1=0,i2=0,d1=Infinity,d2=Infinity;
+        // 既存レイヤ削除
+        overviewMap.eachLayer((layer) => {
+          if (!(layer instanceof L.TileLayer)) {
+            overviewMap.removeLayer(layer)
+          }
+        })
 
-      line.forEach((p,i)=>{
-        const df=dist(p,from);
-        const dt=dist(p,to);
+        const routes = await buildFullRoute()
 
-        if(df<d1){d1=df;i1=i;}
-        if(dt<d2){d2=dt;i2=i;}
-      });
+        let bounds = []
 
-      const score=d1+d2;
+        routes.forEach((r) => {
+          const poly = L.polyline(r.coords, {
+            color: getRouteColor(r.type),
+            weight: 4,
+            dashArray: r.type === 'fallback' ? '6,6' : null,
+          }).addTo(overviewMap)
 
-      if(score<bestScore){
-        bestScore=score;
+          bounds = bounds.concat(r.coords)
+        })
 
-        if(i1<i2){
-          best=line.slice(i1,i2+1);
-        }else{
-          best=line.slice(i2,i1+1).reverse();
+        // マーカーも追加
+        const cards = data.d?.[di]?.c || []
+        cards.forEach((c) => {
+          if (c.la) {
+            L.marker([c.la, c.lo]).addTo(overviewMap)
+            bounds.push([c.la, c.lo])
+          }
+        })
+
+        if (bounds.length) {
+          overviewMap.fitBounds(bounds, { padding: [20, 20] })
         }
       }
-    });
-  });
 
-  log("segment:", best?.length, "score:", bestScore);
-  return best;
-}
+      // ===== stationGraph生成 =====
+      function buildStationGraphFromGeoJSON(geo) {
+        const stations = []
+        const stationIndex = {}
 
-// ===== タブ =====
-function renderTabs(){
-  tabs.innerHTML="";
+        // 駅抽出
+        geo.features.forEach((f) => {
+          if (f.geometry.type === 'Point') {
+            const name = f.properties.name
+            const [lng, lat] = f.geometry.coordinates
 
-  (data.d||[]).forEach((d,i)=>{
-    const b=document.createElement("button");
-    b.innerText=d.dt;
-    b.onclick=()=>{
-      di=i;
-      openIndex=null;
-      render();
-    };
-    tabs.appendChild(b);
-  });
-}
+            stations.push({ name, lat, lng })
+            stationIndex[name] = { lat, lng }
+          }
+        })
 
-// ===== 描画 =====
-function render(){
-  const prevScroll = window.scrollY;
+        // 最近傍駅検索
+        function findNearestStation(coord) {
+          let best = null
+          let bestDist = Infinity
 
-  renderTabs();
-  renderVirtual();
-  renderOverviewMap();
+          stations.forEach((s) => {
+            const d = (s.lng - coord[0]) ** 2 + (s.lat - coord[1]) ** 2
 
-  // 👇 これが超重要
-  window.scrollTo(0, prevScroll);
+            if (d < bestDist) {
+              bestDist = d
+              best = s.name
+            }
+          })
 
-  setTimeout(prefetchRoutes, 300);
-}
+          return best
+        }
 
-function showLoading(index){
-  const cards = document.querySelectorAll(".card");
-  const card = cards[index];
+        const graph = {}
 
-  if(!card) return;
+        function addEdge(a, b, line) {
+          if (!a || !b || a === b) return
 
-  let el = card.querySelector(".routeInfo");
+          graph[a] = graph[a] || []
+          graph[b] = graph[b] || []
 
-  if(!el){
-    el = document.createElement("div");
-    el.className = "routeInfo loading";
-    card.querySelector(".header").appendChild(el);
-  }
+          if (!graph[a].some((e) => e.to === b && e.line === line)) {
+            graph[a].push({ to: b, line })
+            graph[b].push({ to: a, line })
+          }
+        }
 
-  el.innerText = "ルート取得中...";
-}
+        geo.features.forEach((f) => {
+          let lineName = f.properties?.name
 
-function hideLoading(index){
-  const card = document.querySelectorAll(".card")[index];
-  if(!card) return;
+          if (!lineName || !lineName.includes('線')) {
+            const parts = f.properties?.uri?.split('/') || []
+            lineName = parts[parts.length - 2]
+          }
 
-  const el = card.querySelector(".routeInfo");
-  if(el) el.classList.remove("loading");
-}
+          let lines = []
 
-// ===== 地図 =====
-async function initMap(i,c){
-  log("=== initMap ===");
+          if (f.geometry.type === 'LineString') {
+            lines = [f.geometry.coordinates]
+          } else if (f.geometry.type === 'MultiLineString') {
+            lines = f.geometry.coordinates
+          } else {
+            return
+          }
 
-  let map = maps[i];
+          lines.forEach((coords) => {
+            let prevStation = null
 
-  if(!map){
-    map = L.map(`m${i}`,{
-      dragging:true,
-      tap:false,
-      touchZoom:true,
-      scrollWheelZoom:true
-    });
+            coords.forEach((p) => {
+              const station = findNearestStation(p)
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png')
-      .addTo(map);
+              if (prevStation && station && prevStation !== station) {
+                addEdge(prevStation, station, lineName)
+              }
 
-    const container = map.getContainer();
+              prevStation = station
+            })
+          })
+        })
 
-    container.addEventListener("click", e=>e.stopPropagation());
-    container.addEventListener("touchstart", e=>e.stopPropagation(), {passive:true});
+        return {
+          stationGraph: graph,
+          stations,
+        }
+      }
 
-    container.addEventListener("touchstart", ()=>lockBodyScroll(true), {passive:true});
-    container.addEventListener("touchend", ()=>lockBodyScroll(false));
-    container.addEventListener("touchcancel", ()=>lockBodyScroll(false));
+      // ===== LOAD =====
+      function loadData() {
+        try {
+          const raw = new URLSearchParams(location.search).get('d')
+          return JSON.parse(LZString.decompressFromEncodedURIComponent(raw))
+        } catch {
+          return { d: [{ dt: 'サンプル', c: [] }] }
+        }
+      }
 
-    container.addEventListener("mousedown", ()=>lockBodyScroll(true));
-    container.addEventListener("mouseup", ()=>lockBodyScroll(false));
-    container.addEventListener("mouseleave", ()=>lockBodyScroll(false));
+      const data = loadData() || { d: [{ dt: 'サンプル', c: [] }] }
+      let di = 0,
+        openIndex = null
 
-    maps[i] = map;
-  }
+      // ===== 路線カラー =====
+      const lineColor = {
+        東日本旅客鉄道中央線: 'orange',
+        東日本旅客鉄道武蔵野線: 'red',
+        東日本旅客鉄道青梅線: 'green',
+        東日本旅客鉄道京葉線: 'blue',
+      }
 
-  // 👇 ここが超重要（表示後にサイズ再計算）
-  setTimeout(()=>{
-    map.invalidateSize();
-  }, 0);
+      // ===== 路線キャッシュ =====
+      const lineCache = {}
 
-  map.setView([c.la||35,c.lo||139],13);
+      function normalizeLineName(name) {
+        if (!name) return null
 
-  map.eachLayer(layer=>{
-    if(!(layer instanceof L.TileLayer)){
-      map.removeLayer(layer);
-    }
-  });
+        return name
+          .replaceAll('JR東日本', '東日本旅客鉄道')
+          .replaceAll('JR', '東日本旅客鉄道')
+          .replaceAll('線', '線') // 将来拡張用
+      }
 
-  if(!c.la) return;
+      async function loadLine(name) {
+        if (!name) {
+          log('❌ line missing')
+          return null
+        }
 
-  L.marker([c.la,c.lo]).addTo(map);
+        name = normalizeLineName(name)
 
-  const prev=data.d[di].c[i-1];
-  if(!prev || !prev.la) return;
+        if (lineCache[name]) return lineCache[name]
 
-  if(c.m!=="train"){
-    showLoading(i);
+        try {
+          log('📥 load:', name)
+          const res = await fetch(`./lines/${name}.geojson`)
 
-    const result = await getRouteORS(prev, c, c.m);
+          if (!res.ok) {
+            log('❌ geojson not found:', name)
+            return null
+          }
 
-    hideLoading(i);
+          const geo = await res.json()
+          lineCache[name] = geo
+          return geo
+        } catch (e) {
+          log('❌ load error:', name, e)
+          return null
+        }
+      }
 
-    if(result){
-      L.polyline(result.coords,{
-        color:getRouteColor(c.m),
-        weight:4
-      }).addTo(map);
+      // ===== 距離 =====
+      function dist(a, b) {
+        return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+      }
 
-      showRouteInfo(i, result.distance, result.duration);
-      return;
-    }
+      // ===== セグメント抽出（強化版） =====
+      function extractSegment(geo, from, to) {
+        let best = null,
+          bestScore = Infinity
 
-    L.polyline([[prev.la,prev.lo],[c.la,c.lo]],{
-      dashArray:"6,6"
-    }).addTo(map);
+        geo.features.forEach((f) => {
+          let lines = []
 
-    return;
-  }
+          if (f.geometry.type === 'LineString') {
+            lines = [f.geometry.coordinates]
+          } else if (f.geometry.type === 'MultiLineString') {
+            lines = f.geometry.coordinates
+          }
 
-  if(!c.line){
-    c.line = prev.line;
-  }
-  if(!c.line) return;
+          lines.forEach((line) => {
+            let i1 = 0,
+              i2 = 0,
+              d1 = Infinity,
+              d2 = Infinity
 
-  const geo=await loadLine(c.line);
-  if(!geo) return;
+            line.forEach((p, i) => {
+              const df = dist(p, from)
+              const dt = dist(p, to)
 
-  const seg=extractSegment(geo,[prev.lo,prev.la],[c.lo,c.la]);
-  if(!seg) return;
+              if (df < d1) {
+                d1 = df
+                i1 = i
+              }
+              if (dt < d2) {
+                d2 = dt
+                i2 = i
+              }
+            })
 
-  L.polyline(seg.map(p=>[p[1],p[0]]),{
-    color:"red",
-    weight:4
-  }).addTo(map);
-}
+            const score = d1 + d2
 
-// ===== 地図操作中の本文スクロール抑制 =====
-function lockBodyScroll(lock){
-  if(lock){
-    document.body.style.overflow = "hidden";
-    document.body.style.touchAction = "none";
-  }else{
-    document.body.style.overflow = "";
-    document.body.style.touchAction = "";
-  }
-}
-  
-// ===== 自動スクロール =====
-function autoScroll(){
-  if(openIndex===null) return;
+            if (score < bestScore) {
+              bestScore = score
 
-  const el=document.querySelectorAll(".card")[openIndex];
-  if(el){
-    el.scrollIntoView({behavior:"smooth",block:"center"});
-  }
-}
+              if (i1 < i2) {
+                best = line.slice(i1, i2 + 1)
+              } else {
+                best = line.slice(i2, i1 + 1).reverse()
+              }
+            }
+          })
+        })
 
-function showRouteInfo(index, distance, duration){
-  const cards = document.querySelectorAll(".card");
-  const card = cards[index];
+        log('segment:', best?.length, 'score:', bestScore)
+        return best
+      }
 
-  if(!card) return;
+      // ===== タブ =====
+      function renderTabs() {
+        tabs.innerHTML = ''
 
-  let info = card.querySelector(".routeInfo");
+        ;(data.d || []).forEach((d, i) => {
+          const b = document.createElement('button')
+          b.innerText = d.dt
+          b.onclick = () => {
+            di = i
+            openIndex = null
+            render()
+          }
+          tabs.appendChild(b)
+        })
+      }
 
-  if(!info){
-    info = document.createElement("div");
-    info.className = "routeInfo";
-    info.style.fontSize = "12px";
-    info.style.marginTop = "4px";
-    info.style.color = "#555";
+      // ===== 描画 =====
+      function render() {
+        const prevScroll = window.scrollY
 
-    card.querySelector(".header").appendChild(info);
-  }
+        renderTabs()
+        renderVirtual()
+        renderOverviewMap()
 
-  info.innerText =
-    `${formatDistance(distance)} / ${formatDuration(duration)}`;
-}
+        // 👇 これが超重要
+        window.scrollTo(0, prevScroll)
 
-function getRouteColor(mode){
-  switch(mode){
-    case "walk": return "green";
-    case "car": return "#007aff";
-    case "bike": return "orange";
-    case "transfer": return "purple";
-    default: return "#007aff";
-  }
-}
+        setTimeout(prefetchRoutes, 300)
+      }
 
-// ===== 次予定 =====
-function updateNext(){
-  const now=new Date();
-  const nowMin=now.getHours()*60+now.getMinutes();
+      function showLoading(index) {
+        const cards = document.querySelectorAll('.card')
+        const card = cards[index]
 
-  let nextItem=null;
+        if (!card) return
 
-  data.d[di].c.forEach(c=>{
-    if(!c.s) return;
-    const [h,m]=c.s.split(":");
-    const t=h*60+ +m;
-    if(t>=nowMin && !nextItem) nextItem=c;
-  });
+        let el = card.querySelector('.routeInfo')
 
-  next.innerText = nextItem
-    ? `次: ${nextItem.s} ${nextItem.tt||nextItem.station}`
-    : "予定終了";
-}
+        if (!el) {
+          el = document.createElement('div')
+          el.className = 'routeInfo loading'
+          card.querySelector('.header').appendChild(el)
+        }
 
-// ===== 仮想化 =====
-function renderVirtual(){
-  const cards = data.d?.[di]?.c || [];
+        el.innerText = 'ルート取得中...'
+      }
 
-  const viewHeight = window.innerHeight;
-  const start = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER);
-  const end = Math.min(
-    cards.length,
-    Math.ceil((scrollTop + viewHeight) / ITEM_HEIGHT) + BUFFER
-  );
+      function hideLoading(index) {
+        const card = document.querySelectorAll('.card')[index]
+        if (!card) return
 
-  if(openIndex !== null){
-    // 👇 地図開いてる時は仮想化しない
-    renderAll();
-    return;
-  }
+        const el = card.querySelector('.routeInfo')
+        if (el) el.classList.remove('loading')
+      }
 
-  log("renderVirtual", start, end, cards.length);
-  
-  list.innerHTML = "";
-  
-  // 上スペーサー
-  const topSpacer = document.createElement("div");
-  topSpacer.style.height = `${start * ITEM_HEIGHT}px`;
-  list.appendChild(topSpacer);
+      // ===== 地図 =====
+      async function initMap(i, c) {
+        log('=== initMap ===')
 
-  // 本体
-  for(let i=start;i<end;i++){
-    const c = cards[i];
+        let map = maps[i]
 
-    const el=document.createElement("div");
-    el.className="card"+(i===openIndex?" open":"");
+        if (!map) {
+          map = L.map(`m${i}`, {
+            dragging: true,
+            tap: false,
+            touchZoom: true,
+            scrollWheelZoom: true,
+          })
 
-    el.innerHTML=`
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+
+          const container = map.getContainer()
+
+          container.addEventListener('click', (e) => e.stopPropagation())
+          container.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true })
+
+          container.addEventListener('touchstart', () => lockBodyScroll(true), { passive: true })
+          container.addEventListener('touchend', () => lockBodyScroll(false))
+          container.addEventListener('touchcancel', () => lockBodyScroll(false))
+
+          container.addEventListener('mousedown', () => lockBodyScroll(true))
+          container.addEventListener('mouseup', () => lockBodyScroll(false))
+          container.addEventListener('mouseleave', () => lockBodyScroll(false))
+
+          maps[i] = map
+        }
+
+        // 👇 ここが超重要（表示後にサイズ再計算）
+        setTimeout(() => {
+          map.invalidateSize()
+        }, 0)
+
+        map.setView([c.la || 35, c.lo || 139], 13)
+
+        map.eachLayer((layer) => {
+          if (!(layer instanceof L.TileLayer)) {
+            map.removeLayer(layer)
+          }
+        })
+
+        if (!c.la) return
+
+        L.marker([c.la, c.lo]).addTo(map)
+
+        const prev = data.d[di].c[i - 1]
+        if (!prev || !prev.la) return
+
+        if (c.m !== 'train') {
+          showLoading(i)
+
+          const result = await getRouteORS(prev, c, c.m)
+
+          hideLoading(i)
+
+          if (result) {
+            L.polyline(result.coords, {
+              color: getRouteColor(c.m),
+              weight: 4,
+            }).addTo(map)
+
+            showRouteInfo(i, result.distance, result.duration)
+            return
+          }
+
+          L.polyline(
+            [
+              [prev.la, prev.lo],
+              [c.la, c.lo],
+            ],
+            {
+              dashArray: '6,6',
+            },
+          ).addTo(map)
+
+          return
+        }
+
+        if (!c.line) {
+          c.line = prev.line
+        }
+        if (!c.line) return
+
+        const geo = await loadLine(c.line)
+        if (!geo) return
+
+        const seg = extractSegment(geo, [prev.lo, prev.la], [c.lo, c.la])
+        if (!seg) return
+
+        L.polyline(
+          seg.map((p) => [p[1], p[0]]),
+          {
+            color: 'red',
+            weight: 4,
+          },
+        ).addTo(map)
+      }
+
+      // ===== 地図操作中の本文スクロール抑制 =====
+      function lockBodyScroll(lock) {
+        if (lock) {
+          document.body.style.overflow = 'hidden'
+          document.body.style.touchAction = 'none'
+        } else {
+          document.body.style.overflow = ''
+          document.body.style.touchAction = ''
+        }
+      }
+
+      // ===== 自動スクロール =====
+      function autoScroll() {
+        if (openIndex === null) return
+
+        const el = document.querySelectorAll('.card')[openIndex]
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }
+
+      function showRouteInfo(index, distance, duration) {
+        const cards = document.querySelectorAll('.card')
+        const card = cards[index]
+
+        if (!card) return
+
+        let info = card.querySelector('.routeInfo')
+
+        if (!info) {
+          info = document.createElement('div')
+          info.className = 'routeInfo'
+          info.style.fontSize = '12px'
+          info.style.marginTop = '4px'
+          info.style.color = '#555'
+
+          card.querySelector('.header').appendChild(info)
+        }
+
+        info.innerText = `${formatDistance(distance)} / ${formatDuration(duration)}`
+      }
+
+      function getRouteColor(mode) {
+        switch (mode) {
+          case 'walk':
+            return 'green'
+          case 'car':
+            return '#007aff'
+          case 'bike':
+            return 'orange'
+          case 'transfer':
+            return 'purple'
+          default:
+            return '#007aff'
+        }
+      }
+
+      // ===== 次予定 =====
+      function updateNext() {
+        const now = new Date()
+        const nowMin = now.getHours() * 60 + now.getMinutes()
+
+        let nextItem = null
+
+        data.d[di].c.forEach((c) => {
+          if (!c.s) return
+          const [h, m] = c.s.split(':')
+          const t = h * 60 + +m
+          if (t >= nowMin && !nextItem) nextItem = c
+        })
+
+        next.innerText = nextItem
+          ? `次: ${nextItem.s} ${nextItem.tt || nextItem.station}`
+          : '予定終了'
+      }
+
+      // ===== 仮想化 =====
+      function renderVirtual() {
+        const cards = data.d?.[di]?.c || []
+
+        const viewHeight = window.innerHeight
+        const start = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER)
+        const end = Math.min(
+          cards.length,
+          Math.ceil((scrollTop + viewHeight) / ITEM_HEIGHT) + BUFFER,
+        )
+
+        if (openIndex !== null) {
+          // 👇 地図開いてる時は仮想化しない
+          renderAll()
+          return
+        }
+
+        log('renderVirtual', start, end, cards.length)
+
+        list.innerHTML = ''
+
+        // 上スペーサー
+        const topSpacer = document.createElement('div')
+        topSpacer.style.height = `${start * ITEM_HEIGHT}px`
+        list.appendChild(topSpacer)
+
+        // 本体
+        for (let i = start; i < end; i++) {
+          const c = cards[i]
+
+          const el = document.createElement('div')
+          el.className = 'card' + (i === openIndex ? ' open' : '')
+
+          el.innerHTML = `
       <div class="header">
-        ${c.station||"未設定"}<br>
-        ${c.line||"line無し"}
+        ${c.station || '未設定'}<br>
+        ${c.line || 'line無し'}
       </div>
       <div class="detail">
         <div id="m${i}" class="map"></div>
       </div>
-    `;
+    `
 
-    el.querySelector(".header").onclick=(e)=>{
-  e.stopPropagation();
+          el.querySelector('.header').onclick = (e) => {
+            e.stopPropagation()
 
-  const wasOpen = openIndex === i;
-  openIndex = wasOpen ? null : i;
+            const wasOpen = openIndex === i
+            openIndex = wasOpen ? null : i
 
-  // ❌ render()しない
-  // render();
+            // ❌ render()しない
+            // render();
 
-  // 👇 DOMだけ更新
-  document.querySelectorAll(".card").forEach((card, idx)=>{
-    card.classList.toggle("open", idx === openIndex);
-  });
+            // 👇 DOMだけ更新
+            document.querySelectorAll('.card').forEach((card, idx) => {
+              card.classList.toggle('open', idx === openIndex)
+            })
 
-  // 👇 map初期化
-  if(openIndex !== null){
-    setTimeout(()=>initMap(openIndex, cards[openIndex]),50);
-  }
-};
+            // 👇 map初期化
+            if (openIndex !== null) {
+              setTimeout(() => initMap(openIndex, cards[openIndex]), 50)
+            }
+          }
 
-    list.appendChild(el);
+          list.appendChild(el)
 
-    if(i===openIndex){
-      setTimeout(()=>initMap(i,c),50);
-    }
-  }
+          if (i === openIndex) {
+            setTimeout(() => initMap(i, c), 50)
+          }
+        }
 
-  // 下スペーサー
-  const bottomSpacer = document.createElement("div");
-  bottomSpacer.style.height = `${(cards.length - end) * ITEM_HEIGHT}px`;
-  list.appendChild(bottomSpacer);
-}
+        // 下スペーサー
+        const bottomSpacer = document.createElement('div')
+        bottomSpacer.style.height = `${(cards.length - end) * ITEM_HEIGHT}px`
+        list.appendChild(bottomSpacer)
+      }
 
-let lastScrollTop = -1;
+      let lastScrollTop = -1
 
-window.addEventListener("scroll", ()=>{
-  const current = window.scrollY;
+      window.addEventListener('scroll', () => {
+        const current = window.scrollY
 
-  if(current === lastScrollTop) return;
+        if (current === lastScrollTop) return
 
-  lastScrollTop = current;
-  scrollTop = current;
+        lastScrollTop = current
+        scrollTop = current
 
-  renderVirtual();
-});
+        renderVirtual()
+      })
 
-  async function initStationGraph(){
-  const files = [
-    "京成電鉄京成成田空港線.geojson",
-    "北総鉄道北総線.geojson",
-    "新京成電鉄京成松戸線.geojson",
-    "東日本旅客鉄道中央線.geojson",
-    "東日本旅客鉄道京葉線.geojson",
-    "東日本旅客鉄道武蔵野線.geojson",
-    "東日本旅客鉄道総武本線.geojson",
-    "東日本旅客鉄道青梅線.geojson"
-  ];
+      async function initStationGraph() {
+        const files = [
+          '京成電鉄京成成田空港線.geojson',
+          '北総鉄道北総線.geojson',
+          '新京成電鉄京成松戸線.geojson',
+          '東日本旅客鉄道中央線.geojson',
+          '東日本旅客鉄道京葉線.geojson',
+          '東日本旅客鉄道武蔵野線.geojson',
+          '東日本旅客鉄道総武本線.geojson',
+          '東日本旅客鉄道青梅線.geojson',
+        ]
 
-  window.stationGraph = {};
-  window.stations = [];
+        window.stationGraph = {}
+        window.stations = []
 
-  for(const file of files){
-    try{
-      log("📥 loading:", file);
+        for (const file of files) {
+          try {
+            log('📥 loading:', file)
 
-      const geo = await fetch(`./lines/${file}`)
-        .then(r=>r.json());
+            const geo = await fetch(`./lines/${file}`).then((r) => r.json())
 
-      const { stationGraph: g, stations: s } =
-        buildStationGraphFromGeoJSON(geo);
+            const { stationGraph: g, stations: s } = buildStationGraphFromGeoJSON(geo)
 
-      // 👇 マージ
-      Object.keys(g).forEach(k=>{
-        stationGraph[k] = stationGraph[k] || [];
-        stationGraph[k].push(...g[k]);
-      });
+            // 👇 マージ
+            Object.keys(g).forEach((k) => {
+              stationGraph[k] = stationGraph[k] || []
+              stationGraph[k].push(...g[k])
+            })
 
-      stations.push(...s);
+            stations.push(...s)
+          } catch (e) {
+            log('❌ load failed:', file, e)
+          }
+        }
 
-    }catch(e){
-      log("❌ load failed:", file, e);
-    }
-  }
+        log('✅ stationGraph ready', Object.keys(stationGraph).length)
+      }
 
-  log("✅ stationGraph ready", Object.keys(stationGraph).length);
-}
+      // ===== 初期 =====
+      initApiKey()
 
-// ===== 初期 =====
-initApiKey();
-
-// 👇 ここに追加
-initStationGraph().then(()=>{
-  render();
-});
-</script>
-
-</body>
+      // 👇 ここに追加
+      initStationGraph().then(() => {
+        render()
+      })
+    </script>
+  </body>
 </html>
